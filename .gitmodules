@@ -1,0 +1,10 @@
+[submodule "ne_vision/3rds/godot-cpp"]
+	path = ne_vision/3rds/godot-cpp
+	url = https://github.com/godotengine/godot-cpp.git
+	branch = 4.5
+[submodule "ne_vision/3rds/Sophus"]
+	path = ne_vision/3rds/Sophus
+	url = https://github.com/strasdat/Sophus.git
+[submodule "ne_vision/3rds/yaml-cpp"]
+	path = ne_vision/3rds/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git
