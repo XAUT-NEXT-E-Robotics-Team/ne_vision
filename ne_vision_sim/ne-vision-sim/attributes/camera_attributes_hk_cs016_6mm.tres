@@ -1,0 +1,6 @@
+[gd_resource type="CameraAttributesPhysical" format=3 uid="uid://c420m8qcnocwx"]
+
+[resource]
+exposure_multiplier = 0.63
+frustum_focal_length = 41.7
+frustum_near = 0.1

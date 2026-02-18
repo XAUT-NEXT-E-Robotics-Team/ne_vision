@@ -1,0 +1,71 @@
+[gd_scene format=3 uid="uid://cbdoi6tvbwxwf"]
+
+[ext_resource type="PackedScene" uid="uid://co5jvitbm45q3" path="res://scenes/gimbal.tscn" id="1_f3sb7"]
+[ext_resource type="PackedScene" uid="uid://c868el11m1wn6" path="res://scenes/car.tscn" id="2_fj7yv"]
+[ext_resource type="CameraAttributesPhysical" uid="uid://c420m8qcnocwx" path="res://attributes/camera_attributes_hk_cs016_6mm.tres" id="2_tlwt5"]
+[ext_resource type="Script" uid="uid://brvmop1wc4jl5" path="res://scripts/auto_aim.gd" id="3_aqk2v"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_f3sb7"]
+sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+ground_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+
+[sub_resource type="Sky" id="Sky_fj7yv"]
+sky_material = SubResource("ProceduralSkyMaterial_f3sb7")
+
+[sub_resource type="Environment" id="Environment_tlwt5"]
+background_mode = 2
+sky = SubResource("Sky_fj7yv")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxMesh" id="BoxMesh_fj7yv"]
+size = Vector3(10, 0.1, 10)
+
+[node name="World" type="Node3D" unique_id=1099810646]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=525797327]
+environment = SubResource("Environment_tlwt5")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1135180070]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+visible = false
+shadow_enabled = true
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=1173248077]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, 0)
+visible = false
+mesh = SubResource("BoxMesh_fj7yv")
+
+[node name="Car" parent="." unique_id=1212806389 instance=ExtResource("2_fj7yv")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0.1, 0)
+
+[node name="MainCamera" type="Camera3D" parent="." unique_id=2059979115]
+transform = Transform3D(-0.9880703, 0, -0.1540033, -0.15297836, -0.11517992, 0.98149437, -0.017738089, 0.99334466, 0.11380586, 0, 0, 0)
+attributes = ExtResource("2_tlwt5")
+
+[node name="AutoAim" type="Node" parent="." unique_id=85645621 node_paths=PackedStringArray("auto_aim_result_frame")]
+script = ExtResource("3_aqk2v")
+auto_aim_result_frame = NodePath("UI/HBoxContainer/AutoAimResultFrame")
+
+[node name="UI" type="CanvasLayer" parent="AutoAim" unique_id=971532439]
+
+[node name="HBoxContainer" type="HBoxContainer" parent="AutoAim/UI" unique_id=367009865]
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="AutoAimResultFrame" type="TextureRect" parent="AutoAim/UI/HBoxContainer" unique_id=793102852]
+layout_mode = 2
+expand_mode = 4
+stretch_mode = 2
+
+[node name="AutoAimViewport" type="SubViewport" parent="AutoAim" unique_id=87427887]
+handle_input_locally = false
+size = Vector2i(1440, 1080)
+render_target_update_mode = 4
+
+[node name="Gimbal" parent="AutoAim/AutoAimViewport" unique_id=10447047 instance=ExtResource("1_f3sb7")]
+transform = Transform3D(0.99999994, 0, 0, 0, 0.99999994, 0, 0, 0, 1, 0, 0.3, 0)
+
+[node name="CameraSensor" type="Camera3D" parent="AutoAim/AutoAimViewport/Gimbal" unique_id=742004680]
+transform = Transform3D(-4.3711385e-08, 0, -1, 0, 1, 0, 1, 0, -4.3711385e-08, 0, 0, 0)
+attributes = ExtResource("2_tlwt5")

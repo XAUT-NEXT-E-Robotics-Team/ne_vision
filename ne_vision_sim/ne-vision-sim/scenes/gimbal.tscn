@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://co5jvitbm45q3"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_170tv"]
+size = Vector3(0.1, 0.03, 0.03)
+
+[node name="Gimbal" type="Node3D" unique_id=10447047]
+
+[node name="Camera" type="MeshInstance3D" parent="." unique_id=897306215]
+mesh = SubResource("BoxMesh_170tv")

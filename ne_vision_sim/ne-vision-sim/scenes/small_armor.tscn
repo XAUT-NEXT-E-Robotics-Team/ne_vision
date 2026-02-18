@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://cq2kyj6brslnr"]
+
+[ext_resource type="PackedScene" uid="uid://bsxfipcnvch2k" path="res://assets/small_armor.glb" id="1_5qv0a"]
+[ext_resource type="Script" uid="uid://6ybiavj4ifta" path="res://scripts/small_armor.gd" id="2_ao2t8"]
+[ext_resource type="Material" uid="uid://bc02ta8ytggpk" path="res://material/light_bar_red.tres" id="2_oxy68"]
+[ext_resource type="Material" uid="uid://c2f7ifw3vfl5d" path="res://material/light_bar_blue.tres" id="2_yd5pw"]
+
+[node name="SmallArmor" unique_id=82748706 instance=ExtResource("1_5qv0a")]
+script = ExtResource("2_ao2t8")
+material_blue = ExtResource("2_yd5pw")
+material_red = ExtResource("2_oxy68")
+
+[node name="ArmorBack" parent="." index="0" unique_id=2095933457]
+transform = Transform3D(0.9659258, -0.25881904, 0, 0.25881904, 0.9659258, 0, 0, 0, 1, 0, 0, 0)
+
+[node name="LightRight" parent="." index="1" unique_id=1152697541]
+transform = Transform3D(0.9659258, 0.25881904, 0, 0.25881904, -0.9659258, -8.742278e-08, -2.262668e-08, 8.444392e-08, -1, 0, 0, 0)
+material_override = ExtResource("2_oxy68")
+
+[node name="LightLeft" parent="." index="2" unique_id=190573296]
+transform = Transform3D(0.9659258, -0.25881904, 0, 0.25881904, 0.9659258, 0, 0, 0, 1, 0, 0, 0)
+material_override = ExtResource("2_oxy68")
+
+[node name="ArmorFace" parent="." index="3" unique_id=1644315807]
+transform = Transform3D(0.9659258, -0.25881904, 0, 0.25881904, 0.9659258, 0, 0, 0, 1, 0, 0, 0)

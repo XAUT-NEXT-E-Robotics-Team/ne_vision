@@ -1,0 +1,29 @@
+[gd_scene format=3 uid="uid://c868el11m1wn6"]
+
+[ext_resource type="PackedScene" uid="uid://cq2kyj6brslnr" path="res://scenes/small_armor.tscn" id="1_c35m8"]
+[ext_resource type="Script" uid="uid://cs81nk881ljj4" path="res://scripts/car.gd" id="1_qt2eu"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_qt2eu"]
+radius = 0.02
+height = 0.2
+
+[node name="Car" type="Node3D" unique_id=1212806389]
+script = ExtResource("1_qt2eu")
+
+[node name="A0" parent="." unique_id=1534457744 instance=ExtResource("1_c35m8")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.2, 0, 0)
+
+[node name="A2" parent="." unique_id=497492681 instance=ExtResource("1_c35m8")]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, -0.2, 0, 0)
+
+[node name="A1" parent="." unique_id=277364345 instance=ExtResource("1_c35m8")]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, -0.3)
+
+[node name="A3" parent="." unique_id=1213746420 instance=ExtResource("1_c35m8")]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 0, 0.3)
+
+[node name="Center" type="Node3D" parent="." unique_id=127732958]
+
+[node name="CenterMesh" type="MeshInstance3D" parent="Center" unique_id=982162206]
+mesh = SubResource("CapsuleMesh_qt2eu")
+skeleton = NodePath("../..")
