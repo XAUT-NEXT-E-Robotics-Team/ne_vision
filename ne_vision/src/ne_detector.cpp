@@ -91,6 +91,15 @@ NeDetector::NeDetector(const std::string&         name,
   }
 
   labels_to_str_ = {"7", "1", "2", "3", "4", "5", "outpost", "ignore", "base"};
+  // labels_to_str_ = {"ignore",
+  //                   "ignore",
+  //                   "ignore",
+  //                   "3",
+  //                   "ignore",
+  //                   "ignore",
+  //                   "outpost",
+  //                   "ignore",
+  //                   "base"};
 
   // New Infer object safely
   try

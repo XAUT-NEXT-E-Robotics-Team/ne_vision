@@ -29,18 +29,16 @@
 //                                                       //
 ///////////////////////////////////////////////////////////
 
-// Description:
+// Description: BY AI
 // Thread-safe parameter server for vision modules.
 // Supports dynamic parameter updates and retrievals with minimal latency.
-// Wraps yaml-cpp with read-write locks, exposing a YAML::Node-like interface.
+// Wraps yaml-cpp with locks, exposing a YAML::Node-like interface.
 
 #pragma once
 
-#include <shared_mutex>
 #include <mutex>
 #include <fstream>
 #include <string>
-#include <vector>
 #include <sstream>
 #include <memory>
 
@@ -64,10 +62,11 @@ public:
   NeParam(const NeParam&) = delete;
   NeParam& operator=(const NeParam&) = delete;
 
-  // Use unique_lock (Write Lock) by default for operator[] access to handle auto-creation and modification.
-  using WriteLock = std::unique_lock<std::shared_mutex>;
+  // Use recursive_mutex to prevent deadlocks when accessing NV_PARAM multiple
+  // times in the same thread (e.g. nested calls or holding a node ref while
+  // querying another).
+  using LockType = std::unique_lock<std::recursive_mutex>;
 
-  template <typename LockType>
   class NodeWrapper
   {
   public:
@@ -78,9 +77,9 @@ public:
 
     // Access child by key
     template <typename Key>
-    NodeWrapper<LockType> operator[](const Key& key)
+    NodeWrapper operator[](const Key& key)
     {
-      return NodeWrapper<LockType>(m_lock, m_node[key]);
+      return NodeWrapper(m_lock, m_node[key]);
     }
 
     // Convert to type
@@ -109,7 +108,7 @@ public:
 
     // Assignment
     template <typename T>
-    NodeWrapper<LockType>& operator=(const T& rhs)
+    NodeWrapper& operator=(const T& rhs)
     {
       m_node = rhs;
       return *this;
@@ -128,9 +127,12 @@ public:
     bool        IsMap() const { return m_node.IsMap(); }
     bool        IsScalar() const { return m_node.IsScalar(); }
     std::size_t size() const { return m_node.size(); }
-    void        push_back(const NodeWrapper& rhs) { m_node.push_back(rhs.m_node); }
-    template<typename T>
-    void        push_back(const T& rhs) { m_node.push_back(rhs); }
+    void push_back(const NodeWrapper& rhs) { m_node.push_back(rhs.m_node); }
+    template <typename T>
+    void push_back(const T& rhs)
+    {
+      m_node.push_back(rhs);
+    }
 
   private:
     std::shared_ptr<LockType> m_lock;
@@ -139,15 +141,15 @@ public:
 
   // Main access point
   template <typename Key>
-  NodeWrapper<WriteLock> operator[](const Key& key)
+  NodeWrapper operator[](const Key& key)
   {
-    auto lock = std::make_shared<WriteLock>(m_mutex);
-    return NodeWrapper<WriteLock>(lock, m_node[key]);
+    auto lock = std::make_shared<LockType>(m_mutex);
+    return NodeWrapper(lock, m_node[key]);
   }
 
   bool LoadFromFile(const std::string& file_path)
   {
-    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
     try
     {
       m_node = YAML::LoadFile(file_path);
@@ -164,7 +166,7 @@ public:
 
   bool Save(const std::string& file_path)
   {
-    std::shared_lock<std::shared_mutex> lock(m_mutex);
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
     try
     {
       std::ofstream fout(file_path);
@@ -180,23 +182,22 @@ public:
 
   std::string Dump()
   {
-    std::shared_lock<std::shared_mutex> lock(m_mutex);
-    std::stringstream                   ss;
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
+    std::stringstream                      ss;
     ss << m_node;
     return ss.str();
   }
 
   void Reset()
   {
-    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    std::unique_lock<std::recursive_mutex> lock(m_mutex);
     m_node = YAML::Node();
   }
 
 private:
   NeParam() = default;
-  mutable std::shared_mutex m_mutex;
-  YAML::Node                m_node;
+  mutable std::recursive_mutex m_mutex;
+  YAML::Node                   m_node;
 };
 
 } // namespace ne_vision
-

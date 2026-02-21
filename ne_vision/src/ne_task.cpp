@@ -33,8 +33,6 @@
 
 #include "ne_vision/utils/ne_task.hpp"
 #include "ne_vision/utils/ne_log.hpp"
-#include "spdlog/sinks/stdout_color_sinks.h"
-#include <ctime>
 
 namespace ne_vision
 {

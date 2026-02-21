@@ -57,6 +57,7 @@ find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenVINO REQUIRED)
+find_package(Ceres REQUIRED)
 
 #################################
 # Build basic ne_vision library #
@@ -110,7 +111,11 @@ target_link_libraries(
     Eigen3::Eigen
     yaml-cpp
     sophus
+    PRIVATE
+    Ceres::ceres
 )
+
+target_include_directories(${PROJECT_NAME} PUBLIC $<TARGET_PROPERTY:Ceres::ceres,INTERFACE_INCLUDE_DIRECTORIES>)
 
 ###########
 # Install #

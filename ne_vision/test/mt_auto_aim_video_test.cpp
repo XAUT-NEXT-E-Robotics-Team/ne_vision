@@ -87,6 +87,7 @@ int main()
       if (frame.empty())
         break;
       auto_aim.UpdateFrame(frame, 'B');
+      auto_aim.UpdateTestImu(-0.0001);
       auto_aim.AutoAim();
       cv::Mat re;
       auto_aim.DebugFrame(re);

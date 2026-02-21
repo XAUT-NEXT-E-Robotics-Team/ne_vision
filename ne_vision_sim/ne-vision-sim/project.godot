@@ -8,6 +8,10 @@
 
 config_version=5
 
+[accessibility]
+
+general/updates_per_second=1
+
 [animation]
 
 compatibility/default_parent_skeleton_in_mesh_instance_3d=true
@@ -23,6 +27,11 @@ config/features=PackedStringArray("4.6", "Forward Plus")
 window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/stretch/mode="viewport"
+
+[editor]
+
+movie_writer/movie_file="/home/ziyu/ziyu/codes/ne_vision/ne_vision_sim/ne-vision-sim/video_output/out.avi"
+movie_writer/fps=30
 
 [physics]
 

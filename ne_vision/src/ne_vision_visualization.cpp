@@ -38,7 +38,8 @@
 
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
-#include <Eigen/src/SVD/JacobiSVD.h>
+#include "ne_vision/utils/ne_rerun_debug.hpp"
+#include "ne_vision/utils/ne_param.hpp"
 
 #define VIS_QUEUE_MAX_SIZE 100
 
@@ -56,6 +57,38 @@ NeVisionVisualization::NeVisionVisualization(
 
   channels_.input_c_sPtr = input_c_sPtr;
   channels_.debug_frame_c_sPtr = debug_frame_c_sPtr;
+
+  try
+  {
+    // Camera intrinsic parameters.
+    const double fx =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fx"].as<double>();
+    const double fy =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fy"].as<double>();
+    const double cx =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cx"].as<double>();
+    const double cy =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cy"].as<double>();
+    pro_param_.camera_matrix_ =
+        (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
+
+    const double k1 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k1"].as<double>();
+    const double k2 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k2"].as<double>();
+    const double p1 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p1"].as<double>();
+    const double p2 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p2"].as<double>();
+    const double k3 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k3"].as<double>();
+    pro_param_.dist_coeffs_ = (cv::Mat_<double>(1, 5) << k1, k2, p1, p2, k3);
+  }
+  catch (const std::exception& e)
+  {
+    NV_ERROR("Failed to load parameters: {}", e.what());
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 void NeVisionVisualization::Draw()
@@ -71,6 +104,8 @@ void NeVisionVisualization::Draw()
 
     debug_frame.frame = frame;
     channels_.debug_frame_c_sPtr->Transmit(debug_frame);
+
+    // nv_rec_g().log(name_ + "_debug_frame", NV_RERUN_CV_IMAGE(frame));
   }
 }
 
@@ -228,50 +263,17 @@ void NeVisionVisualization::drawArmors3D(cv::Mat& frame)
     return;
   }
 
-  for (const auto& armor : vis_pack_.armors_3d.armors)
+  for (const auto& each : vis_pack_.armors_3d.armors)
   {
-    if (armor.debug.is_main)
+    for (size_t i = 0; i < each.debug.re_projected_pts.size(); i++)
     {
-      cv::circle(frame,
-                 cv::Point(armor.debug.pos_last.x(), armor.debug.pos_last.y()),
-                 5,
-                 cv::Scalar(255, 0, 255),
-                 -1);
-      // cv::circle(frame,
-      //            cv::Point(armor.debug.pos_last.x(),
-      //            armor.debug.pos_last.y()), armor.debug.jump_radius,
-      //            cv::Scalar(255, 0, 255),
-      //            1);
-      // cv::circle(frame,
-      //            cv::Point(armor.debug.pos_last.x(),
-      //            armor.debug.pos_last.y()), armor.debug.real_distance,
-      //            cv::Scalar(255, 255, 0),
-      //            1);
-      cv::circle(frame,
-                 cv::Point(armor.debug.pos_kf_p.x(), armor.debug.pos_kf_p.y()),
-                 5,
-                 cv::Scalar(0, 255, 255),
-                 -1);
-      cv::circle(frame,
-                 cv::Point(armor.debug.pos_kf_p.x(), armor.debug.pos_last.y()),
-                 armor.debug.jump_radius,
-                 cv::Scalar(255, 0, 255),
-                 1);
-      cv::circle(frame,
-                 cv::Point(armor.debug.pos_kf_p.x(), armor.debug.pos_last.y()),
-                 armor.debug.real_distance,
-                 cv::Scalar(255, 255, 0),
-                 1);
+      cv::line(frame,
+               each.debug.re_projected_pts[i],
+               each.debug.re_projected_pts[(i + 1) %
+                                           each.debug.re_projected_pts.size()],
+               cv::Scalar(0, 0, 255),
+               2);
     }
-
-    cv::putText(frame,
-                std::to_string(armor.GetId(vis_pack_.armors_3d.aim_id)),
-                cv::Point(armor.debug.pos_current.x(),
-                          armor.debug.pos_current.y() - 10),
-                cv::FONT_HERSHEY_SIMPLEX,
-                0.5,
-                cv::Scalar(255, 255, 0),
-                1);
   }
 }
 } // namespace ne_vision

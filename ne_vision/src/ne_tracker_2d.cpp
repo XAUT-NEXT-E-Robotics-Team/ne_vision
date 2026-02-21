@@ -32,12 +32,24 @@
 // Description:
 //
 
-#include <algorithm>
-#include <vector>
-
 #include "ne_vision/tracker/ne_tracker_2d.hpp"
 
+#include <Eigen/src/Core/Matrix.h>
+#include <Eigen/src/Geometry/Quaternion.h>
+#include <algorithm>
+#include <ceres/types.h>
+#include <chrono>
+#include <vector>
+
+#include "opencv2/opencv.hpp"
+#include "opencv2/core/eigen.hpp"
+
 #include "ne_vision/utils/ne_log.hpp"
+#include "ne_vision/utils/ne_param.hpp"
+#include "ne_vision/utils/ne_math.hpp"
+#include "ne_vision/utils/ne_rerun_debug.hpp"
+#include "rerun/archetypes/scalars.hpp"
+#include "rerun/archetypes/points3d.hpp"
 
 #define BEBUG_LOG
 
@@ -51,311 +63,437 @@ NeTracker2D::NeTracker2D(const std::string&       name,
     : name_(name), armors_2d_cs_ptr_(armors_2d_cs_ptr),
       imu_data_cs_ptr_(imu_data_cs_ptr), armors_3d_cs_ptr_(armors_3d_cs_ptr)
 {
-  last_time_point_ = std::chrono::steady_clock::now();
+
+  // 读取一些参数
+  try
+  {
+    current_aim_.lost_count_threshold =
+        NV_PARAM["auto_aim"]["tracker_2d"]["lost_count_threshold"].as<int>();
+
+    // Camera intrinsic parameters.
+    const double fx =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fx"].as<double>();
+    const double fy =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fy"].as<double>();
+    const double cx =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cx"].as<double>();
+    const double cy =
+        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cy"].as<double>();
+    pnp_param_.camera_matrix =
+        (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
+
+    const double k1 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k1"].as<double>();
+    const double k2 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k2"].as<double>();
+    const double p1 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p1"].as<double>();
+    const double p2 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p2"].as<double>();
+    const double k3 =
+        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k3"].as<double>();
+    pnp_param_.dist_coeffs = (cv::Mat_<double>(1, 5) << k1, k2, p1, p2, k3);
+
+    // Armor 3D points in the armor frame.
+    const double small_armor_width =
+        NV_PARAM["rm"]["armor"]["small"]["width"].as<double>();
+    const double small_armor_height =
+        NV_PARAM["rm"]["armor"]["small"]["height"].as<double>();
+    const double large_armor_width =
+        NV_PARAM["rm"]["armor"]["large"]["width"].as<double>();
+    const double large_armor_height =
+        NV_PARAM["rm"]["armor"]["large"]["height"].as<double>();
+    const double outpost_armor_width =
+        NV_PARAM["rm"]["armor"]["outpost"]["width"].as<double>();
+    const double outpost_armor_height =
+        NV_PARAM["rm"]["armor"]["outpost"]["height"].as<double>();
+    pnp_param_.object_points_small_armor = {
+        {0, small_armor_width / 2.0, small_armor_height / 2.0},   // LT
+        {0, small_armor_width / 2.0, -small_armor_height / 2.0},  // LB
+        {0, -small_armor_width / 2.0, -small_armor_height / 2.0}, // RB
+        {0, -small_armor_width / 2.0, small_armor_height / 2.0}}; // RT
+    pnp_param_.object_points_large_armor = {
+        {0, large_armor_width / 2.0, large_armor_height / 2.0},   // LT
+        {0, large_armor_width / 2.0, -large_armor_height / 2.0},  // LB
+        {0, -large_armor_width / 2.0, -large_armor_height / 2.0}, // RB
+        {0, -large_armor_width / 2.0, large_armor_height / 2.0}}; // RT
+    pnp_param_.object_points_outpost_armor = {
+        {0, outpost_armor_width / 2.0, outpost_armor_height / 2.0},   // LT
+        {0, outpost_armor_width / 2.0, -outpost_armor_height / 2.0},  // LB
+        {0, -outpost_armor_width / 2.0, -outpost_armor_height / 2.0}, // RB
+        {0, -outpost_armor_width / 2.0, outpost_armor_height / 2.0}}; // RT
+
+    // 必须调用这个
+    pnp_param_.ConvertToEigen();
+
+    // Transform from gimbal frame to camera frame.
+    const Eigen::Vector3d euler_angle(
+        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["r"]
+            .as<double>(),
+        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["p"]
+            .as<double>(),
+        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["y"]
+            .as<double>());
+    gimbal_to_camera_.q =
+        Eigen::AngleAxisd(euler_angle.z(), Eigen::Vector3d::UnitZ()) *
+        Eigen::AngleAxisd(euler_angle.y(), Eigen::Vector3d::UnitY()) *
+        Eigen::AngleAxisd(euler_angle.x(), Eigen::Vector3d::UnitX());
+    gimbal_to_camera_.t
+        << NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["t"]["x"]
+               .as<double>(),
+        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["t"]["y"]
+            .as<double>(),
+        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["t"]["z"]
+            .as<double>();
+  }
+  catch (const std::exception& e)
+  {
+    NV_ERROR("Failed to load parameters for NeTracker2D: {}", e.what());
+    std::exit(EXIT_FAILURE);
+  }
+
+  // 处理gimbal to camera
+  // clang-format off
+  Eigen::Matrix3d CC_to_C;
+  CC_to_C <<  0,  0,  1,
+             -1,  0,  0,
+              0, -1,  0;
+  // clang-format on
+  gimbal_to_camera_.q = gimbal_to_camera_.q * Eigen::Quaterniond(CC_to_C);
+  // 平移没变
+
+  // 初始化Ceres
+  yaw_optimize_.options.linear_solver_type = ceres::DENSE_SCHUR;
+  yaw_optimize_.options.minimizer_progress_to_stdout = false;
+  yaw_optimize_.options.max_num_iterations = 20;
+  yaw_optimize_.options.num_threads = 1;
+
+  //
 }
 
 void NeTracker2D::Tarck2D()
 {
+  // std::chrono::steady_clock::time_point now =
+  // std::chrono::steady_clock::now();
+
+  if (!armors_2d_cs_ptr_->Receive(armors_2d_))
+  {
+    // 不会发生吧，除非把任务触发方式设置错了。
+    NV_WARN("Failed to receive 2D armors, skip this frame.");
+    return;
+  }
+
+  // 清一下
   armors_3d_.armors.clear();
 
-  if (armors_2d_cs_ptr_ && armors_2d_cs_ptr_->Receive(armors_2d_))
+  trackAndChoose();
+
+  if (!current_aim_.IsDetected())
+    goto send; // 只要本次没识别到，就退出了
+
+  // 能到这里，armors_2d必须不是空的
+  solvePnP();
+
+  current_aim_.cap_stamp = armors_2d_.cap_stamp;
+
+  if (current_aim_.aim_armors.empty())
+    goto send; // 可能全都解算失败了？
+
+  if (!matchStamp())
+    goto send;
+
+  transformToImuFrame();
+  yawOptimize();
+
+  // 循环填数据
+  for (auto& each : current_aim_.aim_armors)
   {
-    armors_3d_.cap_stamp = armors_2d_.cap_stamp;
-
-    // Cau dt
-    auto now = std::chrono::steady_clock::now();
-    dt_ = std::chrono::duration<double>(now - last_time_point_).count();
-    last_time_point_ = now;
-
-    track2D();
-    // for (auto& each_aim : tracker_aim_list_)
-    // {
-    //   NV_DEBUG(
-    //       "Aim ID: {}, Lost Count: {}, Main Armor Center: ({:.2f}, {:.2f}), "
-    //       "Other Armor{:.2f}, {:.2f}), Other Armor Valid: {}",
-    //       each_aim.armor_main.id,
-    //       each_aim.lost_count,
-    //       each_aim.armor_main.armor.center.x(),
-    //       each_aim.armor_main.armor.center.y(),
-    //       each_aim.armor_other.armor.center.x(),
-    //       each_aim.armor_other.armor.center.y(),
-    //       each_aim.other_armor_is_valid);
-    // }
-    chooseAim();
-
-    matchStamp();
-    solvePnP();
-    transformToImuFrame();
-
-    for (auto& each_aim : tracker_aim_list_)
-    {
-      armors_3d_.aim_id = each_aim.armor_main.id;
-
-      NeArmors3D_t::Armor3D_t armor_3d;
-
-      armor_3d.SetId(armors_3d_.aim_id, each_aim.armor_main.id);
-      armor_3d.debug = each_aim.armor_main.debug;
-
-      armors_3d_.armors.push_back(armor_3d);
-
-      // If the other armor is valid, also push it to armors_3d_.
-      if (each_aim.other_armor_is_valid)
-      {
-        armor_3d.SetId(armors_3d_.aim_id, each_aim.armor_other.id);
-        armor_3d.debug = each_aim.armor_other.debug;
-        armors_3d_.armors.push_back(armor_3d);
-      }
-    }
-
-    armors_3d_cs_ptr_->Transmit(armors_3d_);
+    NeArmors3D_t::Armor3D_t armor_3d;
+    armor_3d.debug = each.debug_info;
+    armor_3d.q = each.imu_to_armor.q;
+    armor_3d.t = each.imu_to_armor.t;
+    armors_3d_.armors.push_back(armor_3d);
   }
+
+  // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对
+send:
+  armors_3d_.cap_stamp = armors_2d_.cap_stamp;
+  armors_3d_cs_ptr_->Transmit(armors_3d_);
 }
 
-void NeTracker2D::track2D()
+void NeTracker2D::trackAndChoose()
 {
-  for (auto it = tracker_aim_list_.begin(); it != tracker_aim_list_.end();)
+  // 跟踪和选板。
+  // 1.
+  // 跟踪当前目标，无数据一定时间后认为丢失。用来防止出现一两次误识别就导致目标变化这种抽象的事情。
+  // 2. 选板，优先级：当前目标 > 也许吧 >
+  //    2D上最近的（巅峰陈雪送的吐槽给你解决了哦）
+
+  if (armors_2d_.armors.empty())
   {
-    if (it->lost_count > kLostCountThres_)
-    {
-      // The aim is lost, remove it from the list.
-      it = tracker_aim_list_.erase(it);
-      continue;
-    }
-
-    if (armors_2d_.armors.empty())
-    {
-      // No armor is detected, just increase the lost count.
-      it->lost_count++;
-      it++;
-      continue;
-    }
-
-    // Find all armors in same armor id
-    std::vector<NeArmors2D_t::Armor_t> same_id_armors;
-
-    auto tmp_it = std::stable_partition(
-        armors_2d_.armors.begin(),
-        armors_2d_.armors.end(),
-        [&](const NeArmors2D_t::Armor_t& armor_detected) {
-          return it->armor_main.armor.armor_id == armor_detected.armor_id;
-        });
-    std::move(
-        armors_2d_.armors.begin(), tmp_it, std::back_inserter(same_id_armors));
-    armors_2d_.armors.erase(armors_2d_.armors.begin(),
-                            tmp_it); // Remove the same id armors
-
-    if (same_id_armors.empty() || same_id_armors.size() > 2)
-    {
-      // No armor with same id is detected, just increase the lost count.
-      // If more than 2 armors with same id are detected, it is also considered
-      // as lost.
-      it->lost_count++;
-      it++;
-      continue;
-    }
-
-    it->lost_count = 0; // Matched, reset lost count
-
-    it->kf_uPtr->Predict(dt_);
-
-    if (same_id_armors.size() == 2)
-    {
-      // Two armors with same id are detected, just match and update the one
-      // with smaller distance to the predicted position.
-
-      std::sort(same_id_armors.begin(),
-                same_id_armors.end(),
-                [&](const NeArmors2D_t::Armor_t& armor1,
-                    const NeArmors2D_t::Armor_t& armor2) {
-                  // return (it->armor_main.armor.center - armor1.center).norm()
-                  // <
-                  //        (it->armor_main.armor.center -
-                  //        armor2.center).norm();
-                  return (it->kf_uPtr->GetPrePos() - armor1.center).norm() <
-                         (it->kf_uPtr->GetPrePos() - armor2.center).norm();
-                });
-
-      it->armor_main.armor = same_id_armors[0];
-
-      it->armor_other.armor = same_id_armors[1];
-      it->other_armor_is_valid = true;
-
-      // handle ID
-      it->armor_other.id = it->armor_main.id;
-      it->armor_other.id_outpost = it->armor_main.id_outpost;
-      if (it->armor_other.armor.center.x() < it->armor_main.armor.center.x())
-        it->armor_other.IdAdd(1); // Left
-      else
-        it->armor_other.IdAdd(-1); // Right
-
-      // START DEBUG
-      it->armor_main.debug.jump_radius = 4;
-      it->armor_main.debug.real_distance = 3;
-      it->armor_main.debug.pos_kf_p = it->kf_uPtr->GetPrePos();
-      it->armor_main.debug.pos_last = it->armor_main.armor.center;
-      it->armor_main.debug.pos_current = it->armor_main.armor.center;
-      it->armor_other.debug.pos_current = it->armor_other.armor.center;
-      // END DEBUG
-
-      it->kf_uPtr->Update(it->armor_main.armor.center);
-    }
-    else
-    {
-      // Only one armor with same id is detected, just match and update it.
-      const auto id_single = matchSort(*it, same_id_armors[0]);
-      it->armor_main.armor = same_id_armors[0];
-      it->other_armor_is_valid = false;
-      it->armor_main.IdAdd(id_single);
-      it->lost_count = 0;
-
-      if (id_single != 0)
-      {
-        // If jump, reset and init kf (beacuse the aim is changed)
-        it->kf_uPtr->Reset();
-        it->kf_uPtr->Init(it->armor_main.armor.center);
-      }
-      else
-      {
-        it->kf_uPtr->Update(it->armor_main.armor.center);
-      }
-    }
+    // 啥都没有，丢失计数器加一。
+    if (!current_aim_.IsLost())
+      current_aim_.lost_count++;
+    return;
   }
 
-  // If there are some armors are detected but not matched with any aim, create
-  // new aims for them.
-
+  // 下面是个小技巧，用来给armors归类
   std::unordered_map<std::string, std::vector<NeArmors2D_t::Armor_t>>
-      grouped_armors;
-  for (const auto& armor_detected : armors_2d_.armors)
+      armors_2d_by_id;
+  for (const auto& armor_2d : armors_2d_.armors)
+    armors_2d_by_id[armor_2d.armor_id].push_back(armor_2d);
+
+  // 看一下是否有当前目标相同的装甲板，把他们拿出来更新
+
+  auto it = armors_2d_by_id.find(current_aim_.aim_id);
+  if (it != armors_2d_by_id.end())
   {
-    grouped_armors[armor_detected.armor_id].push_back(armor_detected);
+    // 找到了，更新当前目标
+    current_aim_.lost_count = 0;
+    current_aim_.aim_armors.clear();
+    for (const auto& armor_2d : it->second)
+      current_aim_.aim_armors.push_back({.armor = armor_2d});
   }
-
-  for (const auto& group : grouped_armors)
-  {
-    const auto& same_id_armors = group.second;
-    if (same_id_armors.size() > 2)
-      continue; // If more than 2 armors with same id are detected, it is
-                // considered as error.
-
-    TrackerAim_t new_aim(same_id_armors[0]);
-
-    // START DEBUG
-    new_aim.armor_main.debug.is_main = true;
-    new_aim.armor_other.debug.is_main = false;
-    // END DEBUG
-
-    if (same_id_armors.size() == 2)
-    {
-      new_aim.armor_other.armor = same_id_armors[1];
-      new_aim.other_armor_is_valid = true;
-
-      // handle ID (default ID is set)
-      if (new_aim.armor_other.armor.center.x() <
-          new_aim.armor_main.armor.center.x())
-        new_aim.armor_other.IdAdd(1); // Left
-      else
-        new_aim.armor_other.IdAdd(-1); // Right
-    }
-    tracker_aim_list_.emplace_back(std::move(new_aim));
-  }
-}
-
-void NeTracker2D::chooseAim() {}
-
-void NeTracker2D::solvePnP() {}
-
-void NeTracker2D::matchStamp() {}
-
-void NeTracker2D::transformToImuFrame() {}
-
-int NeTracker2D::matchSort(TrackerAim_t&                aim,
-                           const NeArmors2D_t::Armor_t& armor_detected)
-{
-  // Calculate the length of the detected armor and the visible armor.
-  // The calculate the avg of them.
-  // 英语编不下去了 ABAB
-  // 无论对于可视装甲板（跟踪buffer中）还是对于识别装甲板，计算装甲板长方法一致且如下：
-  // 1. 先计算一边的直线方程
-  // 2. 取另一边的俩角点作点到直线距离并求平均。
-  // 然后两种装甲板再求平均作为评判标准。
-
-#define Y1 aim.armor_main.armor.LB.y()
-#define Y2 aim.armor_main.armor.LT.y()
-#define X1 aim.armor_main.armor.LB.x()
-#define X2 aim.armor_main.armor.LT.x()
-  const double A1 = Y1 - Y2;
-  const double B1 = X2 - X1;
-  const double C1 = X1 * Y2 - X2 * Y1;
-#undef Y1
-#undef Y2
-#undef X1
-#undef X2
-#define Y1 armor_detected.LB.y()
-#define Y2 armor_detected.LT.y()
-#define X1 armor_detected.LB.x()
-#define X2 armor_detected.LT.x()
-  const double A2 = Y1 - Y2;
-  const double B2 = X2 - X1;
-  const double C2 = X1 * Y2 - X2 * Y1;
-
-#undef Y1
-#undef Y2
-#undef X1
-#undef X2
-
-#define X0 aim.armor_main.armor.RB.x()
-#define Y0 aim.armor_main.armor.RB.y()
-#define X1 aim.armor_main.armor.RT.x()
-#define Y1 aim.armor_main.armor.RT.y()
-  const double l_1_0 =
-      std::abs(A1 * X0 + B1 * Y0 + C1) / std::sqrt(A1 * A1 + B1 * B1);
-  const double l_1_1 =
-      std::abs(A1 * X1 + B1 * Y1 + C1) / std::sqrt(A1 * A1 + B1 * B1);
-  const double avg_l_1 = (l_1_0 + l_1_1) / 2.0;
-#undef Y0
-#undef Y1
-#undef X0
-#undef X1
-#define X0 armor_detected.RB.x()
-#define Y0 armor_detected.RB.y()
-#define X1 armor_detected.RT.x()
-#define Y1 armor_detected.RT.y()
-  const double l_2_0 =
-      std::abs(A2 * X0 + B2 * Y0 + C2) / std::sqrt(A2 * A2 + B2 * B2);
-  const double l_2_1 =
-      std::abs(A2 * X1 + B2 * Y1 + C2) / std::sqrt(A2 * A2 + B2 * B2);
-  const double avg_l_2 = (l_2_0 + l_2_1) / 2.0;
-#undef Y0
-#undef Y1
-#undef X0
-#undef X1
-
-  const double l = (avg_l_1 + avg_l_2) / 2.0;
-  const double d = (aim.kf_uPtr->GetPrePos() - armor_detected.center).norm();
-  // const double d = (aim.armor_main.armor.center -
-  // armor_detected.center).norm();
-
-  const double jump_radius = kMatchDistanceRatio_ * l;
-
-  // START DEBUG
-  aim.armor_main.debug.jump_radius = jump_radius;
-  aim.armor_main.debug.real_distance = d;
-  aim.armor_main.debug.pos_kf_p = aim.kf_uPtr->GetPrePos();
-  aim.armor_main.debug.pos_last = aim.armor_main.armor.center;
-  aim.armor_main.debug.pos_current = armor_detected.center;
-  // END DEBUG
-
-  //   NV_DEBUG("l{} d{}", l, d);
-  if (d < jump_radius)
-    return 0; // Matched
   else
   {
-    // if (aim.armor_main.armor.center.x() < armor_detected.center.x())
-    if (aim.kf_uPtr->GetPrePos().x() < armor_detected.center.x())
-      return -1; // Jumped right
-    else
-      return 1; // Jumped left
+    if (!current_aim_.IsLost())
+    {
+      current_aim_.lost_count++;
+      return;
+    }
+
+    // 已经丢失了，选一个新的目标。
+    double          avg_distance_min = 0;
+    Eigen::Vector2d center(armors_2d_.frame_width / 2.0,
+                           armors_2d_.frame_height / 2.0);
+
+    auto it2 = armors_2d_by_id.begin();
+
+    for (auto t_it = armors_2d_by_id.begin(); t_it != armors_2d_by_id.end();
+         t_it++)
+    {
+      // 不可能存在空的类别
+
+      Eigen::Vector2d avg_center(0, 0);
+      for (const auto& each : t_it->second)
+      {
+        avg_center += each.center;
+      }
+      avg_center /= (double)t_it->second.size();
+
+      const double avg_distance = avg_center.norm();
+      if (avg_distance < avg_distance_min)
+      {
+        avg_distance_min = avg_distance;
+        it2 = t_it;
+      }
+    }
+
+    // 注意上面哪个东西不可能是空的
+    current_aim_.lost_count = 0;
+    // 更新下当前装甲板ID
+    current_aim_.aim_id = armors_2d_.armors.at(0).armor_id;
+    current_aim_.aim_armors.clear();
+    for (const auto& armor_2d : it2->second)
+      current_aim_.aim_armors.push_back({.armor = armor_2d});
   }
 }
+
+void NeTracker2D::solvePnP()
+{
+  const auto& obj_ps = pnp_param_.GetObjectPoints(current_aim_.aim_id);
+
+  cv::Mat                  tvec, rvec;
+  std::vector<cv::Point2d> img_points;
+
+  for (auto& each : current_aim_.aim_armors)
+  {
+    // 注意顺序
+    img_points.clear();
+    img_points.emplace_back(each.armor.LT.x(), each.armor.LT.y());
+    img_points.emplace_back(each.armor.LB.x(), each.armor.LB.y());
+    img_points.emplace_back(each.armor.RB.x(), each.armor.RB.y());
+    img_points.emplace_back(each.armor.RT.x(), each.armor.RT.y());
+
+    each.pnp_is_valid = cv::solvePnP(obj_ps,
+                                     img_points,
+                                     pnp_param_.camera_matrix,
+                                     pnp_param_.dist_coeffs,
+                                     rvec,
+                                     tvec,
+                                     false,
+                                     cv::SOLVEPNP_IPPE);
+    if (each.pnp_is_valid)
+    {
+      each.camera_to_armor.t = Eigen::Vector3d(
+          tvec.at<double>(0), tvec.at<double>(1), tvec.at<double>(2));
+      math::RvecToQuaternion(rvec, each.camera_to_armor.q);
+    }
+  }
+
+  // 删掉无效的
+  current_aim_.aim_armors.erase(
+      std::remove_if(
+          current_aim_.aim_armors.begin(),
+          current_aim_.aim_armors.end(),
+          [](const TrackerAimArmor_t& armor) { return !armor.pnp_is_valid; }),
+      current_aim_.aim_armors.end());
+}
+
+bool NeTracker2D::matchStamp()
+{
+  // 与IMU的时间戳配对
+
+  std::pair<NeImuData_t, NeImuData_t> imu_data_pair;
+
+  if (!imu_data_cs_ptr_->FindClosestPair(
+          current_aim_.cap_stamp, imu_data_pair, [](const NeImuData_t& data) {
+            return data.receive_stamp;
+          }))
+  {
+    NV_WARN("The IMU data buffer less than 2, can't find a pair of IMU data to "
+            "match with the current aim, skip this frame.");
+    return false;
+  }
+
+  // 判断视频时间和IMU的关系，如果夹在中间，就线性插值一下，否则就用最近的那个。
+  if (current_aim_.cap_stamp < imu_data_pair.first.receive_stamp)
+  {
+    imu_data_ = imu_data_pair.first;
+    NV_WARN("Current cap_stamp is EARILER than the earliest IMU data.");
+  }
+  else if (current_aim_.cap_stamp > imu_data_pair.second.receive_stamp)
+  {
+    imu_data_ = imu_data_pair.second;
+    NV_WARN("Current cap_stamp is LATER than the latest IMU data.");
+  }
+  else
+  {
+    const double ratio =
+        std::chrono::duration<double>(current_aim_.cap_stamp -
+                                      imu_data_pair.first.receive_stamp)
+            .count() /
+        std::chrono::duration<double>(imu_data_pair.second.receive_stamp -
+                                      imu_data_pair.first.receive_stamp)
+            .count();
+
+    imu_data_.acc = imu_data_pair.first.acc * (1 - ratio) +
+                    imu_data_pair.second.acc * ratio;
+    imu_data_.gyro = imu_data_pair.first.gyro * (1 - ratio) +
+                     imu_data_pair.second.gyro * ratio;
+    imu_data_.quat =
+        imu_data_pair.first.quat.slerp(ratio, imu_data_pair.second.quat);
+  }
+  return true;
+}
+
+void NeTracker2D::transformToImuFrame()
+{
+  // for (auto& each : current_aim_.aim_armors)
+  // {
+  //   each.imu_to_armor.q =
+  //       imu_data_.quat * gimbal_to_camera_.q * each.camera_to_armor.q;
+  //   each.imu_to_armor.t =
+  //       imu_data_.quat *
+  //       (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
+  // }
+}
+
+void NeTracker2D::yawOptimize()
+{
+  // 上交的那种yaw优化
+  for (auto& each : current_aim_.aim_armors)
+  {
+    // double yaw = math::QuaternionToYaw(each.imu_to_armor.q);
+    // nv_rec_g().log("tracker_2d_yaw", rerun::Scalars(yaw));
+    // NV_DEBUG("{} {} {}",
+    //          each.imu_to_armor.t.x(),
+    //          each.imu_to_armor.t.y(),
+    //          each.imu_to_armor.t.z());
+
+    // 先计算修正畸变后的装甲板四个点坐标
+    std::vector<cv::Point2d> img_points{math::EigenVec2dToCv(each.armor.LT),
+                                        math::EigenVec2dToCv(each.armor.LB),
+                                        math::EigenVec2dToCv(each.armor.RB),
+                                        math::EigenVec2dToCv(each.armor.RT)};
+    cv::undistortPoints(img_points,
+                        img_points,
+                        pnp_param_.camera_matrix,
+                        pnp_param_.dist_coeffs,
+                        cv::noArray(),
+                        pnp_param_.camera_matrix);
+    std::vector<Eigen::Vector2d> img_points_undistorted;
+    for (const auto& pt : img_points)
+      img_points_undistorted.emplace_back(pt.x, pt.y);
+
+    auto obj_ps = pnp_param_.GetObjectPointsEigen(current_aim_.aim_id);
+
+    // 配置下问题，注意实时创建并不高效
+    // 注意在前哨是反的
+    // TODO: 针对异常情况采取处理方法
+    double               yaw = 0;
+    double               fixed_pitch_rad = current_aim_.aim_id == "outpost"
+                                               ? math::DegToRad(-15)
+                                               : math::DegToRad(15);
+    ceres::CostFunction* cost_function =
+        new ceres::AutoDiffCostFunction<detail::ArmorReprojectionError, 8, 1>(
+            new detail::ArmorReprojectionError(img_points_undistorted,
+                                               obj_ps,
+                                               gimbal_to_camera_.q,
+                                               imu_data_.quat,
+                                               pnp_param_.camera_matrix_eigen,
+                                               each.camera_to_armor.t,
+                                               fixed_pitch_rad));
+    ceres::Problem problem;
+    problem.AddParameterBlock(&yaw, 1);
+    // problem.SetParameterLowerBound(&yaw, 0, -std::numbers::pi);
+    // problem.SetParameterUpperBound(&yaw, 0, std::numbers::pi);
+    problem.AddResidualBlock(cost_function, nullptr, &yaw);
+    ceres::Solver::Summary summary;
+
+    // 开算
+    ceres::Solve(yaw_optimize_.options, &problem, &summary);
+
+    yaw = math::WrapToPi(yaw);
+
+    Eigen::Quaterniond q_i_a =
+        Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+        Eigen::AngleAxisd(fixed_pitch_rad, Eigen::Vector3d::UnitY());
+
+    // 更新一下imu_to_armor
+    each.imu_to_armor.q = q_i_a;
+    each.imu_to_armor.t =
+        imu_data_.quat *
+        (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
+
+    // 验证一下?(用于debug)
+    Eigen::Quaterniond q_c_a =
+        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate() * q_i_a;
+
+    Eigen::Vector3d P_LT = q_c_a * obj_ps[0] + each.camera_to_armor.t;
+    Eigen::Vector3d P_LB = q_c_a * obj_ps[1] + each.camera_to_armor.t;
+    Eigen::Vector3d P_RB = q_c_a * obj_ps[2] + each.camera_to_armor.t;
+    Eigen::Vector3d P_RT = q_c_a * obj_ps[3] + each.camera_to_armor.t;
+
+    P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
+    P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
+    P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
+    P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
+
+    std::vector<Eigen::Vector2d> re_projected_pts{
+        P_LT.head<2>(), P_LB.head<2>(), P_RB.head<2>(), P_RT.head<2>()};
+
+    cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
+    cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
+    cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
+    cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
+
+    each.debug_info.re_projected_pts.clear();
+    each.debug_info.re_projected_pts.push_back(P_LT_2d);
+    each.debug_info.re_projected_pts.push_back(P_LB_2d);
+    each.debug_info.re_projected_pts.push_back(P_RB_2d);
+    each.debug_info.re_projected_pts.push_back(P_RT_2d);
+  }
+}
+
 } // namespace ne_vision

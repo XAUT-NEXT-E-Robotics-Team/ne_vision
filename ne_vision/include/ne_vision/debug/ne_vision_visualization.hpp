@@ -142,8 +142,17 @@ private:
     std::deque<NeArmors3D_t>   armors_3ds;
   } vis_queue_;
 
+  struct
+  {
+    cv::Mat camera_matrix_;
+    cv::Mat dist_coeffs_;
+  } pro_param_;
+
   std::string name_;
   VisPack_t   vis_pack_;
+
+  std::string out_video_path_;
+  bool        record_video_ = false;
 };
 
 } // namespace ne_vision

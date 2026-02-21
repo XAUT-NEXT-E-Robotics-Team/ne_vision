@@ -75,7 +75,6 @@ endmacro()
 
 build_unit_test(ut_channel_and_task)
 build_unit_test(ut_log_and_param)
-build_unit_test(ut_tracker_2d_kf)
 
 ##########################################
 # Build all test cases in the categories #
@@ -104,7 +103,6 @@ install(
     TARGETS
     ut_channel_and_task
     ut_log_and_param
-    ut_tracker_2d_kf
     mt_auto_aim_video_test
     RUNTIME
     DESTINATION test/bin

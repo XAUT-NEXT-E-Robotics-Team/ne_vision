@@ -1,9 +1,43 @@
 auto_aim:
   detector:
-    model_path: "/home/ziyu/ziyu/codes/ne_vision/install/share/model/0708"
+    model_path: "/home/ziyu/ziyu/codes/ne_vision/install/share/model/0526"
   tracker_2d:
-    # tracker_2d 卡尔曼参数
-    sigma_q_x: 0.5
-    sigma_q_y: 0.5
-    sigma_r_x: 0.5
-    sigma_r_y: 0.5
+    lost_count_threshold: 10
+
+hardware:
+  camera:
+    camera_matrix:
+      # 相机内参
+      fx: 1251.0
+      fy: 1251.0
+      cx: 540.0
+      cy: 405.0
+    dist_coeffs:
+      # 畸变参数
+      k1: 0.0
+      k2: 0.0
+      p1: 0.0
+      p2: 0.0
+      k3: 0.0
+    gimbal_to_camera:
+      # 云台到相机的变换
+      r: # 旋转角度（度）(RPY)
+        r: 0.0
+        p: 0.0
+        y: 0.0
+      t: # 平移向量（米）
+        x: 0.0
+        y: 0.0
+        z: 0.0
+
+rm:
+  armor:
+    small:
+      width: 0.135
+      height: 0.055
+    large:
+      width: 0.225
+      height: 0.055
+    outpost:
+      width: 0.3
+      height: 0.15

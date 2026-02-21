@@ -35,10 +35,14 @@
 
 #include <memory>
 
+#include "godot_cpp/classes/ref.hpp"
 #include "godot_cpp/classes/ref_counted.hpp"
 #include "godot_cpp/classes/image.hpp"
 
+#include "godot_cpp/core/math_defs.hpp"
+#include "godot_cpp/variant/quaternion.hpp"
 #include "godot_cpp/variant/string.hpp"
+#include "godot_cpp/variant/vector3.hpp"
 #include "ne_vision/ne_auto_aim.hpp"
 
 #include "ne_vision/utils/ne_param.hpp"
@@ -62,6 +66,10 @@ public:
   void Start(const godot::String& config_path);
   void UpdataFrame(const godot::Ref<godot::Image>& gd_img);
   void GetViualizeFrame(godot::Ref<godot::Image> gd_img);
+  void UpdateImu(const godot::Vector3&    acc,
+                 const godot::Vector3&    gyro,
+                 const godot::Quaternion& quat,
+                 godot::real_t            delay_s);
 
   void          set_config_file_path(const godot::String& path);
   godot::String get_config_file_path() const;

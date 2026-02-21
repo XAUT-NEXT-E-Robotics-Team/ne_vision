@@ -62,7 +62,19 @@ public:
   ~NeAutoAim();
 
   void UpdateFrame(const cv::Mat& frame, char our_color);
-  void UpdateImu();
+  void UpdateImu(const Eigen::Vector3d&    acc,
+                 const Eigen::Vector3d&    gyro,
+                 const Eigen::Quaterniond& quat,
+                 double                    delay_test_s = 0.0);
+
+  inline void UpdateTestImu(double delay_s)
+  {
+    Eigen::Vector3d    acc = Eigen::Vector3d::Zero();
+    Eigen::Vector3d    gyro = Eigen::Vector3d::Zero();
+    Eigen::Quaterniond quat = Eigen::Quaterniond::Identity();
+
+    UpdateImu(acc, gyro, quat, delay_s);
+  }
 
   inline bool IsRunning() const { return is_running_; }
   void        Start(std::string config_file_path);
@@ -106,15 +118,5 @@ private:
 
   bool is_running_ = false;
 };
-
-#ifdef USE_RERUN
-#define NV_RERUN_CV_IMAGE(cv_mat)                                              \
-  rerun::Image(reinterpret_cast<const uint8_t*>(cv_mat.data),                  \
-               rerun::WidthHeight(static_cast<uint32_t>(cv_mat.cols),          \
-                                  static_cast<uint32_t>(cv_mat.rows)),         \
-               rerun::ColorModel::BGR)
-#else
-#define NV_RERUN_CV_IMAGE(cv_mat) nullptr
-#endif
 
 } // namespace ne_vision

@@ -79,13 +79,26 @@ void NeAutoAim::UpdateFrame(const cv::Mat& frame, char our_color)
   channels_.frame_input_sPtr_->Transmit(msg);
 }
 
-void NeAutoAim::UpdateImu()
+void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
+                          const Eigen::Vector3d&    gyro,
+                          const Eigen::Quaterniond& quat,
+                          double                    delay_s)
 {
   if (is_running_ == false)
   {
-    NV_WARN("AutoAim is not running, cannot update IMU");
+    NV_WARN("AutoAim is not running, cannot update IMU data");
     return;
   }
+  interfaces::NeImuData_t msg;
+  msg.receive_stamp = std::chrono::steady_clock::now();
+  msg.receive_stamp +=
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(delay_s));
+  msg.acc = acc;
+  msg.gyro = gyro;
+  msg.quat = quat;
+
+  channels_.imu_data_sPtr_->Transmit(msg);
 }
 
 void NeAutoAim::Start(std::string config_file_path)

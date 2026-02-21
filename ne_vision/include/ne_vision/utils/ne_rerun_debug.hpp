@@ -1,18 +1,18 @@
 ///////////////////////////////////////////////////////////
 //                                                       //
-//                         .                  .:-:       //
-//                         :-:               :-::        //
-//                       -----           .:---.          //
-//                     .-------.      .:-----:           //
-//                    :---------. .:-------.             //
-//                   :--------------------.              //
-//                  ---------------------                //
-//                .-------:. :---------:                 //
-//               :-----:.      .-------.                 //
-//              .:---:          .-----.                  //
-//             .:-:.              :-:                    //
-//            .-:.                  .                    //
-//           .:                                          //
+//                        .                 .:-:         //
+//                       :-:              :-::           //
+//                      -----          .:---.            //
+//                    .-------.     .:-----:             //
+//                   :---------. .:-------.              //
+//                  :--------------------.               //
+//                ---------------------                  //
+//               .-------:. :---------:                  //
+//              :-----:.     .-------.                   //
+//             .:---:         .-----.                    //
+//            .:-:.             :-:                      //
+//          .-:.                 .                       //
+//         .:                                            //
 //                                                       //
 //    ███╗   ██╗███████╗██╗  ██╗████████╗    ███████╗    //
 //    ████╗  ██║██╔════╝╚██╗██╔╝╚══██╔══╝    ██╔════╝    //
@@ -38,9 +38,13 @@
 #pragma once
 
 #ifdef USE_RERUN
+#include <iostream> // Required for std::cerr
 #include "rerun.hpp"
 #include "rerun/demo_utils.hpp"
+#include "rerun/archetypes/scalars.hpp"
+#include "rerun/archetypes/points2d.hpp"
 #include "rerun/recording_stream.hpp"
+#include "ne_vision/utils/ne_log.hpp"
 #endif
 
 namespace ne_vision
@@ -63,18 +67,29 @@ public:
 private:
   NeRerunDebug() : rec("ne_vision")
   {
-    // Spawn a viewer and connect to it.
-    // We do NOT exit on failure, because on CI or systems without rerun installed,
-    // we don't want to crash.
-    rec.spawn();
+    // Capture the connection status
+    auto status = rec.connect_grpc();
+    if (status.is_err())
+    {
+      NV_ERROR("Failed to connect to Rerun server: {}", status.description);
+    }
   }
 
   rerun::RecordingStream rec;
 };
 
 // Global accessor for convenience
-// Changed to function to avoid static initialization order issues and eager spawning
+// Changed to function to avoid static initialization order issues and eager
+// spawning
 inline rerun::RecordingStream& nv_rec_g() { return NeRerunDebug::instance(); }
+
+// Some helper macros for common data types. You can define your own as needed.
+// Parentheses added around cv_mat to prevent macro expansion precedence bugs
+#define NV_RERUN_CV_IMAGE(cv_mat)                                              \
+  rerun::Image(reinterpret_cast<const uint8_t*>((cv_mat).data),                \
+               rerun::WidthHeight(static_cast<uint32_t>((cv_mat).cols),        \
+                                  static_cast<uint32_t>((cv_mat).rows)),       \
+               rerun::ColorModel::BGR)
 
 #else
 
@@ -105,6 +120,10 @@ public:
 
   DummyResult spawn() { return {}; }
   DummyResult connect(...) { return {}; }
+  DummyResult connect_grpc(...)
+  {
+    return {};
+  } // Added to match the active wrapper
   DummyResult save(...) { return {}; }
 };
 
@@ -121,6 +140,8 @@ public:
 // Global accessor for convenience
 // Changed to function to avoid static initialization order issues
 inline DummyRecordingStream& nv_rec_g() { return NeRerunDebug::instance(); }
+
+#define NV_RERUN_CV_IMAGE(cv_mat) nullptr
 
 #endif // USE_RERUN
 

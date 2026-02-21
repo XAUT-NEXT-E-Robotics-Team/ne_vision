@@ -84,6 +84,10 @@ void NeVisionGd::_bind_methods()
 
   godot::ClassDB::bind_method(godot::D_METHOD("get_visualize_frame", "frame"),
                               &NeVisionGd::GetViualizeFrame);
+
+  godot::ClassDB::bind_method(
+      godot::D_METHOD("update_imu", "acc", "gyro", "quat", "delay_s"),
+      &NeVisionGd::UpdateImu);
 }
 
 NeVisionGd::NeVisionGd() { NV_INFO("NeVisionGd constructor called."); }
@@ -143,6 +147,23 @@ void NeVisionGd::UpdataFrame(const godot::Ref<godot::Image>& gd_img)
   cv::cvtColor(cv_img, cv_img, cv::COLOR_RGBA2BGR);
 
   auto_aim_uPtr_->UpdateFrame(cv_img, 'B');
+}
+
+void NeVisionGd::UpdateImu(const godot::Vector3&    acc,
+                           const godot::Vector3&    gyro,
+                           const godot::Quaternion& quat,
+                           godot::real_t            delay_s)
+{
+  if (!auto_aim_uPtr_)
+  {
+    NV_WARN("NeAutoAim is not initialized.");
+    return;
+  }
+
+  auto_aim_uPtr_->UpdateImu(Eigen::Vector3d(acc.x, acc.y, acc.z),
+                            Eigen::Vector3d(gyro.x, gyro.y, gyro.z),
+                            Eigen::Quaterniond(quat.w, quat.x, quat.y, quat.z),
+                            delay_s);
 }
 
 // I try to put gd_img in it, but it could not work anymore.
