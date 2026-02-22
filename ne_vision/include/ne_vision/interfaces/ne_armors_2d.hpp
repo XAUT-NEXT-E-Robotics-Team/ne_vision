@@ -82,6 +82,8 @@ struct NeArmors2D_t
     // 1, 2, 3, 4, 7, outpost, base
     std::string armor_id;
 
+    char armor_color; // 这里是颜色 就 R B 和 N N就是无颜色
+
     // Armor position in the image R = LEFT & T = TOP
     // NOTE: Eigen use DEEP COPY to overload "=".
     //       So it safer than cv::Mat

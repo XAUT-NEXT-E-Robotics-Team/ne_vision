@@ -149,11 +149,16 @@ void NeDetector::Detect()
   armors_2d_c_sPtr_->Transmit(armors_2d);
 }
 
+// 预处理
 void NeDetector::preProcess(cv::Mat& frame)
 {
   cv::resize(frame, frame, cv::Size(MODEL_COL, MODEL_ROW));
 }
 
+// 后处理
+// TODO: 基本上要动的就这个
+// TODO: 改得时候记得删掉 out_color 这里其实原来应该是our color才对的。
+// 然后color通过armors_2d传出去
 void NeDetector::postProcess(size_t        width,
                              size_t        height,
                              NeArmors2D_t& armors_2d,
@@ -171,7 +176,7 @@ void NeDetector::postProcess(size_t        width,
     double scale_y = static_cast<double>(height) / 640.0;
 
     std::string labels_str = labels_to_str_[obj.label];
-
+    // TODO: 不要了
     int detect_color = out_color == 'B' ? 1 : 0;
 
     if (labels_str == "ignore")
@@ -179,6 +184,7 @@ void NeDetector::postProcess(size_t        width,
     if (obj.color != detect_color)
       continue;
 
+    // TODO: 修改这个interface的构造函数，然后传过去就行
     armors_2d.armors.emplace_back(labels_str,
                                   obj.landmarks[0] * scale_x,
                                   obj.landmarks[1] * scale_y,
