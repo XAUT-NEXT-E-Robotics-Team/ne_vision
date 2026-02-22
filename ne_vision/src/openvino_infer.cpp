@@ -109,8 +109,9 @@ void OpenvinoInfer::infer(Mat img, int detect_color)
     // cout << "class_id.x:" << class_id.x << endl;
     // cout << "detect_color:" << detect_color << endl;
     /**/
-    // None 或者Purple 丢掉
-    if (color_id.x == 2 || color_id.x == 3)
+    //color_id.x 2为None，仍保留
+    // Purple 丢掉
+    if (color_id.x == 3)
     {
       continue;
     }

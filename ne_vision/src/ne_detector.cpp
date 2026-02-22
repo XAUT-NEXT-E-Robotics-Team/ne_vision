@@ -69,7 +69,7 @@ NeDetector::NeDetector(const std::string&         name,
   // Read and validate model paths
   std::string model_path_str =
       NV_PARAM["auto_aim"]["detector"]["model_path"].as<std::string>(
-          "model/0708");
+          "model/0526");
 
   // model_path_str is like "model/0708"
   // If we are in Godot, we might need to handle resource paths or absolute
@@ -105,7 +105,7 @@ NeDetector::NeDetector(const std::string&         name,
   try
   {
     openvino_infer_uPtr_ =
-        std::make_unique<infer::OpenvinoInfer>(model_xml, model_bin, "CPU");
+        std::make_unique<infer::OpenvinoInfer>(model_xml, model_bin, "AUTO");
   }
   catch (const std::exception& e)
   {
@@ -177,12 +177,15 @@ void NeDetector::postProcess(size_t        width,
 
     std::string labels_str = labels_to_str_[obj.label];
     // TODO: 不要了
-    int detect_color = out_color == 'B' ? 1 : 0;
+    int detect_color = (out_color == 'B') ? 1 :
+                   (out_color == 'N') ? 2 : 0;
+
 
     if (labels_str == "ignore")
       continue;
     if (obj.color != detect_color)
       continue;
+   
 
     // TODO: 修改这个interface的构造函数，然后传过去就行
     armors_2d.armors.emplace_back(labels_str,
