@@ -60,6 +60,7 @@ struct NeArmors2D_t
   {
     Armor_t() = default;
     Armor_t(const std::string& armor_id_str,
+            char               armor_color,
             double             LT_x,
             double             LT_y,
             double             LB_x,

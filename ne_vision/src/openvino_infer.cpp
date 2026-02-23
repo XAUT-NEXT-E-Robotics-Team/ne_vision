@@ -109,20 +109,24 @@ void OpenvinoInfer::infer(Mat img, int detect_color)
     // cout << "class_id.x:" << class_id.x << endl;
     // cout << "detect_color:" << detect_color << endl;
     /**/
-    //color_id.x 2为None，仍保留
-    // Purple 丢掉
+    // color_id.x 2为None，仍保留
+    //  Purple 丢掉
     if (color_id.x == 3)
     {
       continue;
     }
-    else if (detect_color == 0 && color_id.x == 1) // detect blue
-    {
-      continue;
-    }
-    else if (detect_color == 1 && color_id.x == 0) // detect red
-    {
-      continue;
-    }
+
+    // 这里先不要判断力，我需要把颜色输出出来给到跟踪器
+    // 这个DetectColor就没用来
+    (void)detect_color;
+    // else if (detect_color == 0 && color_id.x == 1) // detect blue
+    // {
+    //   continue;
+    // }
+    // else if (detect_color == 1 && color_id.x == 0) // detect red
+    // {
+    //   continue;
+    // }
     _class_id = class_id.x;
     _color_id = color_id.x;
     Object obj;

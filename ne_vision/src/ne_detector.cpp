@@ -46,8 +46,6 @@
 #define MODEL_ROW 640
 #define MODEL_COL 640
 
-#define DETECT_COLOR 1
-
 namespace ne_vision
 {
 
@@ -90,16 +88,8 @@ NeDetector::NeDetector(const std::string&         name,
     return;
   }
 
+  // @julyfun： 水晶
   labels_to_str_ = {"7", "1", "2", "3", "4", "5", "outpost", "ignore", "base"};
-  // labels_to_str_ = {"ignore",
-  //                   "ignore",
-  //                   "ignore",
-  //                   "3",
-  //                   "ignore",
-  //                   "ignore",
-  //                   "outpost",
-  //                   "ignore",
-  //                   "base"};
 
   // New Infer object safely
   try
@@ -143,7 +133,8 @@ void NeDetector::Detect()
   }
 
   preProcess(frame);
-  openvino_infer_uPtr_->infer(frame, DETECT_COLOR);
+  // 这里的detect_color暂时没用，我们需要拿到颜色取做装甲板闪烁续命
+  openvino_infer_uPtr_->infer(frame, 0);
   postProcess(width, height, armors_2d, frame_i_.our_color);
 
   armors_2d_c_sPtr_->Transmit(armors_2d);
@@ -156,9 +147,6 @@ void NeDetector::preProcess(cv::Mat& frame)
 }
 
 // 后处理
-// TODO: 基本上要动的就这个
-// TODO: 改得时候记得删掉 out_color 这里其实原来应该是our color才对的。
-// 然后color通过armors_2d传出去
 void NeDetector::postProcess(size_t        width,
                              size_t        height,
                              NeArmors2D_t& armors_2d,
@@ -176,19 +164,21 @@ void NeDetector::postProcess(size_t        width,
     double scale_y = static_cast<double>(height) / 640.0;
 
     std::string labels_str = labels_to_str_[obj.label];
-    // TODO: 不要了
-    int detect_color = (out_color == 'B') ? 1 :
-                   (out_color == 'N') ? 2 : 0;
-
 
     if (labels_str == "ignore")
       continue;
-    if (obj.color != detect_color)
-      continue;
-   
 
-    // TODO: 修改这个interface的构造函数，然后传过去就行
+    // 在倪那边，0是红色，1是蓝色，3是无颜色
+    char armor_color;
+    switch (obj.color)
+    {
+    case 0: armor_color = 'R'; break;
+    case 1: armor_color = 'B'; break;
+    default: armor_color = 'N'; break; // 3
+    }
+
     armors_2d.armors.emplace_back(labels_str,
+                                  armor_color,
                                   obj.landmarks[0] * scale_x,
                                   obj.landmarks[1] * scale_y,
                                   obj.landmarks[2] * scale_x,
