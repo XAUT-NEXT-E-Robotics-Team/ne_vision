@@ -163,18 +163,53 @@ NeTracker2D::NeTracker2D(const std::string&       name,
   // 平移没变
 
   // 初始化Ceres
-  yaw_optimize_.options.linear_solver_type = ceres::DENSE_SCHUR;
+  yaw_optimize_.options.linear_solver_type = ceres::DENSE_QR;
   yaw_optimize_.options.minimizer_progress_to_stdout = false;
-  yaw_optimize_.options.max_num_iterations = 20;
+  yaw_optimize_.options.max_num_iterations = 5; // 降低迭代次数，通常2-3次收敛
   yaw_optimize_.options.num_threads = 1;
+  yaw_optimize_.options.function_tolerance = 1e-3; // 放宽收敛条件以加速
 
-  //
+  // 初始化复用的 Problem 和数据
+  yaw_optimize_.problem = std::make_unique<ceres::Problem>();
+  yaw_optimize_.img_points.resize(4);
+  yaw_optimize_.obj_points.resize(4);
+
+  // 构建 CostFunction，使用指针指向 yaw_optimize_ 中的数据
+  ceres::CostFunction* cost_function =
+      new ceres::AutoDiffCostFunction<detail::ArmorReprojectionError, 8, 1>(
+          new detail::ArmorReprojectionError(&yaw_optimize_.img_points,
+                                             &yaw_optimize_.obj_points,
+                                             &yaw_optimize_.q_c_i,
+                                             &pnp_param_.camera_matrix_eigen,
+                                             &yaw_optimize_.t_c_a,
+                                             &yaw_optimize_.fixed_pitch_rad));
+
+  // 添加残差块，参数块为 yaw_optimize_.yaw 的地址
+  yaw_optimize_.problem->AddResidualBlock(
+      cost_function, nullptr, &yaw_optimize_.yaw);
+
+  // 初始化复用的 Problem_full (用于 optimize 函数)
+  yaw_optimize_.problem_full = std::make_unique<ceres::Problem>();
+
+  // 构建 CostFunction for full optimization
+  ceres::CostFunction* cost_function_full =
+      new ceres::AutoDiffCostFunction<detail::OptimizeCost, 8, 1, 3>(
+          new detail::OptimizeCost(&yaw_optimize_.img_points,
+                                   &yaw_optimize_.obj_points,
+                                   &yaw_optimize_.q_g_c,
+                                   &yaw_optimize_.q_i_g,
+                                   &pnp_param_.camera_matrix_eigen,
+                                   &yaw_optimize_.t_g_c,
+                                   &yaw_optimize_.fixed_pitch_rad));
+
+  // 添加残差块
+  yaw_optimize_.problem_full->AddResidualBlock(
+      cost_function_full, nullptr, &yaw_optimize_.yaw, yaw_optimize_.t.data());
 }
 
 void NeTracker2D::Tarck2D()
 {
-  // std::chrono::steady_clock::time_point now =
-  // std::chrono::steady_clock::now();
+  std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
   if (!armors_2d_cs_ptr_->Receive(armors_2d_))
   {
@@ -203,7 +238,8 @@ void NeTracker2D::Tarck2D()
     goto send;
 
   transformToImuFrame();
-  yawOptimize();
+  // yawOptimize();
+  optimize();
 
   // 循环填数据
   for (auto& each : current_aim_.aim_armors)
@@ -219,6 +255,11 @@ void NeTracker2D::Tarck2D()
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
   armors_3d_cs_ptr_->Transmit(armors_3d_);
+
+  std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+  double                                duration_ms =
+      std::chrono::duration<double, std::milli>(end - now).count();
+  NV_DEBUG("Tracker 2D took {:.2f} ms", duration_ms);
 }
 
 void NeTracker2D::trackAndChoose()
@@ -389,14 +430,14 @@ bool NeTracker2D::matchStamp()
 
 void NeTracker2D::transformToImuFrame()
 {
-  // for (auto& each : current_aim_.aim_armors)
-  // {
-  //   each.imu_to_armor.q =
-  //       imu_data_.quat * gimbal_to_camera_.q * each.camera_to_armor.q;
-  //   each.imu_to_armor.t =
-  //       imu_data_.quat *
-  //       (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
-  // }
+  for (auto& each : current_aim_.aim_armors)
+  {
+    each.imu_to_armor.q =
+        imu_data_.quat * gimbal_to_camera_.q * each.camera_to_armor.q;
+    each.imu_to_armor.t =
+        imu_data_.quat *
+        (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
+  }
 }
 
 void NeTracker2D::yawOptimize()
@@ -416,49 +457,42 @@ void NeTracker2D::yawOptimize()
                                         math::EigenVec2dToCv(each.armor.LB),
                                         math::EigenVec2dToCv(each.armor.RB),
                                         math::EigenVec2dToCv(each.armor.RT)};
+    // 只有当需要高精度去畸变时才开启完整undistortPoints，或者考虑近似去畸变
+    // 这里保留原逻辑但需注意耗时
     cv::undistortPoints(img_points,
                         img_points,
                         pnp_param_.camera_matrix,
                         pnp_param_.dist_coeffs,
                         cv::noArray(),
                         pnp_param_.camera_matrix);
-    std::vector<Eigen::Vector2d> img_points_undistorted;
-    for (const auto& pt : img_points)
-      img_points_undistorted.emplace_back(pt.x, pt.y);
 
-    auto obj_ps = pnp_param_.GetObjectPointsEigen(current_aim_.aim_id);
+    // 更新复用的数据结构
+    for (size_t i = 0; i < 4; ++i)
+    {
+      yaw_optimize_.img_points[i] =
+          Eigen::Vector2d(img_points[i].x, img_points[i].y);
+    }
 
-    // 配置下问题，注意实时创建并不高效
-    // 注意在前哨是反的
-    // TODO: 针对异常情况采取处理方法
-    double               yaw = 0;
-    double               fixed_pitch_rad = current_aim_.aim_id == "outpost"
-                                               ? math::DegToRad(-15)
-                                               : math::DegToRad(15);
-    ceres::CostFunction* cost_function =
-        new ceres::AutoDiffCostFunction<detail::ArmorReprojectionError, 8, 1>(
-            new detail::ArmorReprojectionError(img_points_undistorted,
-                                               obj_ps,
-                                               gimbal_to_camera_.q,
-                                               imu_data_.quat,
-                                               pnp_param_.camera_matrix_eigen,
-                                               each.camera_to_armor.t,
-                                               fixed_pitch_rad));
-    ceres::Problem problem;
-    problem.AddParameterBlock(&yaw, 1);
-    // problem.SetParameterLowerBound(&yaw, 0, -std::numbers::pi);
-    // problem.SetParameterUpperBound(&yaw, 0, std::numbers::pi);
-    problem.AddResidualBlock(cost_function, nullptr, &yaw);
+    yaw_optimize_.obj_points =
+        pnp_param_.GetObjectPointsEigen(current_aim_.aim_id);
+    yaw_optimize_.q_c_i =
+        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
+    yaw_optimize_.t_c_a = each.camera_to_armor.t;
+    yaw_optimize_.fixed_pitch_rad = current_aim_.aim_id == "outpost"
+                                        ? math::DegToRad(-15)
+                                        : math::DegToRad(15);
+    yaw_optimize_.yaw = 0.0; // 初始猜测
+
+    // 复用 Problem 进行求解
     ceres::Solver::Summary summary;
+    ceres::Solve(yaw_optimize_.options, yaw_optimize_.problem.get(), &summary);
 
-    // 开算
-    ceres::Solve(yaw_optimize_.options, &problem, &summary);
-
-    yaw = math::WrapToPi(yaw);
+    double optimized_yaw = math::WrapToPi(yaw_optimize_.yaw);
 
     Eigen::Quaterniond q_i_a =
-        Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-        Eigen::AngleAxisd(fixed_pitch_rad, Eigen::Vector3d::UnitY());
+        Eigen::AngleAxisd(optimized_yaw, Eigen::Vector3d::UnitZ()) *
+        Eigen::AngleAxisd(yaw_optimize_.fixed_pitch_rad,
+                          Eigen::Vector3d::UnitY());
 
     // 更新一下imu_to_armor
     each.imu_to_armor.q = q_i_a;
@@ -470,10 +504,14 @@ void NeTracker2D::yawOptimize()
     Eigen::Quaterniond q_c_a =
         gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate() * q_i_a;
 
-    Eigen::Vector3d P_LT = q_c_a * obj_ps[0] + each.camera_to_armor.t;
-    Eigen::Vector3d P_LB = q_c_a * obj_ps[1] + each.camera_to_armor.t;
-    Eigen::Vector3d P_RB = q_c_a * obj_ps[2] + each.camera_to_armor.t;
-    Eigen::Vector3d P_RT = q_c_a * obj_ps[3] + each.camera_to_armor.t;
+    Eigen::Vector3d P_LT =
+        q_c_a * yaw_optimize_.obj_points[0] + each.camera_to_armor.t;
+    Eigen::Vector3d P_LB =
+        q_c_a * yaw_optimize_.obj_points[1] + each.camera_to_armor.t;
+    Eigen::Vector3d P_RB =
+        q_c_a * yaw_optimize_.obj_points[2] + each.camera_to_armor.t;
+    Eigen::Vector3d P_RT =
+        q_c_a * yaw_optimize_.obj_points[3] + each.camera_to_armor.t;
 
     P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
     P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
@@ -493,6 +531,105 @@ void NeTracker2D::yawOptimize()
     each.debug_info.re_projected_pts.push_back(P_LB_2d);
     each.debug_info.re_projected_pts.push_back(P_RB_2d);
     each.debug_info.re_projected_pts.push_back(P_RT_2d);
+  }
+}
+
+void NeTracker2D::optimize()
+{
+  // 自己造的一种优化方式，将tvec也优化进去，可以得到协方差。
+
+  for (auto& each : current_aim_.aim_armors)
+  {
+    // 先计算修正畸变后的装甲板四个点坐标
+    std::vector<cv::Point2d> img_points{math::EigenVec2dToCv(each.armor.LT),
+                                        math::EigenVec2dToCv(each.armor.LB),
+                                        math::EigenVec2dToCv(each.armor.RB),
+                                        math::EigenVec2dToCv(each.armor.RT)};
+    cv::undistortPoints(img_points,
+                        img_points,
+                        pnp_param_.camera_matrix,
+                        pnp_param_.dist_coeffs,
+                        cv::noArray(),
+                        pnp_param_.camera_matrix);
+
+    // 更新复用数据
+    for (size_t i = 0; i < 4; ++i)
+    {
+      yaw_optimize_.img_points[i] =
+          Eigen::Vector2d(img_points[i].x, img_points[i].y);
+    }
+    yaw_optimize_.obj_points =
+        pnp_param_.GetObjectPointsEigen(current_aim_.aim_id);
+    yaw_optimize_.fixed_pitch_rad = current_aim_.aim_id == "outpost"
+                                        ? math::DegToRad(-15)
+                                        : math::DegToRad(15);
+    yaw_optimize_.q_g_c = gimbal_to_camera_.q;
+    yaw_optimize_.q_i_g = imu_data_.quat;
+    yaw_optimize_.t_g_c = gimbal_to_camera_.t;
+
+    // pnp结果直接当yaw的初值，收敛更快
+    yaw_optimize_.yaw = math::QuaternionToYaw(each.imu_to_armor.q);
+
+    // nv_rec_g().log("tracker_2d_yaw_before_optimize",
+    //                rerun::Scalars(yaw_optimize_.yaw));
+
+    // 给下t的初始值
+    yaw_optimize_.t = each.imu_to_armor.t;
+
+    ceres::Solver::Summary summary;
+    // 开算
+    ceres::Solve(
+        yaw_optimize_.options, yaw_optimize_.problem_full.get(), &summary);
+
+    double optimized_yaw = math::WrapToPi(yaw_optimize_.yaw);
+
+    Eigen::Quaterniond q_i_a =
+        Eigen::AngleAxisd(optimized_yaw, Eigen::Vector3d::UnitZ()) *
+        Eigen::AngleAxisd(yaw_optimize_.fixed_pitch_rad,
+                          Eigen::Vector3d::UnitY());
+
+    // 更新一下imu_to_armor
+    each.imu_to_armor.q = q_i_a;
+    each.imu_to_armor.t = yaw_optimize_.t;
+
+    // nv_rec_g().log("tracker_2d_yaw_after_optimize",
+    //                rerun::Scalars(optimized_yaw));
+    // nv_rec_g().log("tracker_2d_t_after_optimize",
+    //                rerun::Scalars({(float)t.x(), (float)t.y(),
+    //                (float)t.z()}));
+
+    // // 验证一下?(用于debug)
+    // Eigen::Quaterniond q_c_i =
+    //     gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
+    // Eigen::Quaterniond q_c_a = q_c_i * q_i_a;
+
+    // // 计算相机到装甲板平移
+    // auto t_c_a = q_c_i * yaw_optimize_.t -
+    //              gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
+
+    // Eigen::Vector3d P_LT = q_c_a * yaw_optimize_.obj_points[0] + t_c_a;
+    // Eigen::Vector3d P_LB = q_c_a * yaw_optimize_.obj_points[1] + t_c_a;
+    // Eigen::Vector3d P_RB = q_c_a * yaw_optimize_.obj_points[2] + t_c_a;
+    // Eigen::Vector3d P_RT = q_c_a * yaw_optimize_.obj_points[3] + t_c_a;
+
+    // P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
+    // P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
+    // P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
+    // P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
+
+    // std::vector<Eigen::Vector2d> re_projected_pts{
+    //     P_LT.head<2>(), P_LB.head<2>(), P_RB.head<2>(), P_RT.head<2>()};
+
+    // cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
+    // cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
+    // cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
+    // cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
+
+    // each.debug_info.re_projected_pts.clear();
+    // each.debug_info.re_projected_pts.push_back(P_LT_2d);
+    // each.debug_info.re_projected_pts.push_back(P_LB_2d);
+    // each.debug_info.re_projected_pts.push_back(P_RB_2d);
+    // each.debug_info.re_projected_pts.push_back(P_RT_2d);
   }
 }
 

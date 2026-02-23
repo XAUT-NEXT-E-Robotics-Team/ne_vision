@@ -110,6 +110,8 @@ void NeDetector::Detect()
   NV_ASSERT(input_c_sPtr_ != nullptr && armors_2d_c_sPtr_ != nullptr &&
             "input_c_sPtr_ and armor_2d_c_sPtr_ cannot be nullptr");
 
+  std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
   if (!input_c_sPtr_->Receive(frame_i_))
   {
     NV_WARN("Input frame is empty");
@@ -138,6 +140,11 @@ void NeDetector::Detect()
   postProcess(width, height, armors_2d, frame_i_.our_color);
 
   armors_2d_c_sPtr_->Transmit(armors_2d);
+
+  std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+  double                                duration_ms =
+      std::chrono::duration<double, std::milli>(end - now).count();
+  NV_DEBUG("Detector took {:.2f} ms", duration_ms);
 }
 
 // 预处理
