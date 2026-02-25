@@ -34,14 +34,15 @@
 
 #include "ne_vision/detector/ne_detector.hpp"
 
+#include <string>
+#include <filesystem>
+#include <exception>
+
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_param.hpp"
 
 #include "ne_vision/detector/openvino_infer.hpp"
-#include <string>
-#include <filesystem>
-#include <exception>
 
 #define MODEL_ROW 640
 #define MODEL_COL 640
@@ -184,6 +185,7 @@ void NeDetector::postProcess(size_t        width,
     default: armor_color = 'N'; break; // 3
     }
 
+    // 构造将自动计算中心
     armors_2d.armors.emplace_back(labels_str,
                                   armor_color,
                                   obj.landmarks[0] * scale_x,

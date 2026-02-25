@@ -60,8 +60,8 @@ NeTracker2D::NeTracker2D(const std::string&       name,
                          const NeArmors2DCsPtr_t& armors_2d_cs_ptr,
                          const NeImuDataCsPtr_t&  imu_data_cs_ptr,
                          const NeArmors3DCsPtr_t& armors_3d_cs_ptr)
-    : name_(name), armors_2d_cs_ptr_(armors_2d_cs_ptr),
-      imu_data_cs_ptr_(imu_data_cs_ptr), armors_3d_cs_ptr_(armors_3d_cs_ptr)
+    : name_(name), armors_2d_c_sPtr_(armors_2d_cs_ptr),
+      imu_data_c_sPtr_(imu_data_cs_ptr), armors_3d_c_sPtr_(armors_3d_cs_ptr)
 {
 
   // 读取一些参数
@@ -188,7 +188,7 @@ NeTracker2D::NeTracker2D(const std::string&       name,
   yaw_optimize_.problem->AddResidualBlock(
       cost_function, nullptr, &yaw_optimize_.yaw);
 
-  // 初始化复用的 Problem_full (用于 optimize 函数)
+  // 初始化 Problem_full (用于 optimize 函数)
   yaw_optimize_.problem_full = std::make_unique<ceres::Problem>();
 
   // 构建 CostFunction for full optimization
@@ -205,13 +205,17 @@ NeTracker2D::NeTracker2D(const std::string&       name,
   // 添加残差块
   yaw_optimize_.problem_full->AddResidualBlock(
       cost_function_full, nullptr, &yaw_optimize_.yaw, yaw_optimize_.t.data());
+
+  // 初始化current aim 的计数器，令其大于最大值，确保第一次识别可以初始化
+  current_aim_.lost_count = current_aim_.lost_count_threshold + 10;
 }
 
 void NeTracker2D::Tarck2D()
 {
-  std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+  // std::chrono::steady_clock::time_point now =
+  // std::chrono::steady_clock::now();
 
-  if (!armors_2d_cs_ptr_->Receive(armors_2d_))
+  if (!armors_2d_c_sPtr_->Receive(armors_2d_))
   {
     // 不会发生吧，除非把任务触发方式设置错了。
     NV_WARN("Failed to receive 2D armors, skip this frame.");
@@ -226,7 +230,7 @@ void NeTracker2D::Tarck2D()
   if (!current_aim_.IsDetected())
     goto send; // 只要本次没识别到，就退出了
 
-  // 能到这里，armors_2d必须不是空的
+  // 能到这里，armors_2d不可能是空的
   solvePnP();
 
   current_aim_.cap_stamp = armors_2d_.cap_stamp;
@@ -241,6 +245,9 @@ void NeTracker2D::Tarck2D()
   // yawOptimize();
   optimize();
 
+  // ONLY FOR DEBUG
+  reprojectAndFillDebugInfo();
+
   // 循环填数据
   for (auto& each : current_aim_.aim_armors)
   {
@@ -248,18 +255,19 @@ void NeTracker2D::Tarck2D()
     armor_3d.debug = each.debug_info;
     armor_3d.q = each.imu_to_armor.q;
     armor_3d.t = each.imu_to_armor.t;
+    armor_3d.yaw = each.imu_to_armor.yaw;
     armors_3d_.armors.push_back(armor_3d);
   }
 
   // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
-  armors_3d_cs_ptr_->Transmit(armors_3d_);
+  armors_3d_c_sPtr_->Transmit(armors_3d_);
 
-  std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-  double                                duration_ms =
-      std::chrono::duration<double, std::milli>(end - now).count();
-  NV_DEBUG("Tracker 2D took {:.2f} ms", duration_ms);
+  // std::chrono::steady_clock::time_point end =
+  // std::chrono::steady_clock::now(); double duration_ms =
+  //     std::chrono::duration<double, std::milli>(end - now).count();
+  // NV_DEBUG("Tracker 2D took {:.2f} ms", duration_ms);
 }
 
 void NeTracker2D::trackAndChoose()
@@ -387,14 +395,26 @@ bool NeTracker2D::matchStamp()
 
   std::pair<NeImuData_t, NeImuData_t> imu_data_pair;
 
-  if (!imu_data_cs_ptr_->FindClosestPair(
+  if (!imu_data_c_sPtr_->FindClosestPair(
           current_aim_.cap_stamp, imu_data_pair, [](const NeImuData_t& data) {
             return data.receive_stamp;
           }))
   {
-    NV_WARN("The IMU data buffer less than 2, can't find a pair of IMU data to "
-            "match with the current aim, skip this frame.");
-    return false;
+    // 尝试获取一下仅有的哪一个
+    NeImuData_t imu_data_single;
+    if (!imu_data_c_sPtr_->Receive(imu_data_single))
+    {
+      // 一个都没有
+      NV_WARN("Wait for IMU data!");
+
+      return false;
+    }
+    imu_data_ = imu_data_single;
+
+    NV_WARN(
+        "Only one IMU data available, use it directly without interpolation.");
+
+    return true;
   }
 
   // 判断视频时间和IMU的关系，如果夹在中间，就线性插值一下，否则就用最近的那个。
@@ -445,13 +465,6 @@ void NeTracker2D::yawOptimize()
   // 上交的那种yaw优化
   for (auto& each : current_aim_.aim_armors)
   {
-    // double yaw = math::QuaternionToYaw(each.imu_to_armor.q);
-    // nv_rec_g().log("tracker_2d_yaw", rerun::Scalars(yaw));
-    // NV_DEBUG("{} {} {}",
-    //          each.imu_to_armor.t.x(),
-    //          each.imu_to_armor.t.y(),
-    //          each.imu_to_armor.t.z());
-
     // 先计算修正畸变后的装甲板四个点坐标
     std::vector<cv::Point2d> img_points{math::EigenVec2dToCv(each.armor.LT),
                                         math::EigenVec2dToCv(each.armor.LB),
@@ -499,38 +512,7 @@ void NeTracker2D::yawOptimize()
     each.imu_to_armor.t =
         imu_data_.quat *
         (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
-
-    // 验证一下?(用于debug)
-    Eigen::Quaterniond q_c_a =
-        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate() * q_i_a;
-
-    Eigen::Vector3d P_LT =
-        q_c_a * yaw_optimize_.obj_points[0] + each.camera_to_armor.t;
-    Eigen::Vector3d P_LB =
-        q_c_a * yaw_optimize_.obj_points[1] + each.camera_to_armor.t;
-    Eigen::Vector3d P_RB =
-        q_c_a * yaw_optimize_.obj_points[2] + each.camera_to_armor.t;
-    Eigen::Vector3d P_RT =
-        q_c_a * yaw_optimize_.obj_points[3] + each.camera_to_armor.t;
-
-    P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
-    P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
-    P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
-    P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
-
-    std::vector<Eigen::Vector2d> re_projected_pts{
-        P_LT.head<2>(), P_LB.head<2>(), P_RB.head<2>(), P_RT.head<2>()};
-
-    cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
-    cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
-    cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
-    cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
-
-    each.debug_info.re_projected_pts.clear();
-    each.debug_info.re_projected_pts.push_back(P_LT_2d);
-    each.debug_info.re_projected_pts.push_back(P_LB_2d);
-    each.debug_info.re_projected_pts.push_back(P_RB_2d);
-    each.debug_info.re_projected_pts.push_back(P_RT_2d);
+    each.imu_to_armor.yaw.exp(optimized_yaw);
   }
 }
 
@@ -591,46 +573,48 @@ void NeTracker2D::optimize()
     // 更新一下imu_to_armor
     each.imu_to_armor.q = q_i_a;
     each.imu_to_armor.t = yaw_optimize_.t;
-
-    // nv_rec_g().log("tracker_2d_yaw_after_optimize",
-    //                rerun::Scalars(optimized_yaw));
-    // nv_rec_g().log("tracker_2d_t_after_optimize",
-    //                rerun::Scalars({(float)t.x(), (float)t.y(),
-    //                (float)t.z()}));
-
-    // // 验证一下?(用于debug)
-    // Eigen::Quaterniond q_c_i =
-    //     gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
-    // Eigen::Quaterniond q_c_a = q_c_i * q_i_a;
-
-    // // 计算相机到装甲板平移
-    // auto t_c_a = q_c_i * yaw_optimize_.t -
-    //              gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
-
-    // Eigen::Vector3d P_LT = q_c_a * yaw_optimize_.obj_points[0] + t_c_a;
-    // Eigen::Vector3d P_LB = q_c_a * yaw_optimize_.obj_points[1] + t_c_a;
-    // Eigen::Vector3d P_RB = q_c_a * yaw_optimize_.obj_points[2] + t_c_a;
-    // Eigen::Vector3d P_RT = q_c_a * yaw_optimize_.obj_points[3] + t_c_a;
-
-    // P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
-    // P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
-    // P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
-    // P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
-
-    // std::vector<Eigen::Vector2d> re_projected_pts{
-    //     P_LT.head<2>(), P_LB.head<2>(), P_RB.head<2>(), P_RT.head<2>()};
-
-    // cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
-    // cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
-    // cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
-    // cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
-
-    // each.debug_info.re_projected_pts.clear();
-    // each.debug_info.re_projected_pts.push_back(P_LT_2d);
-    // each.debug_info.re_projected_pts.push_back(P_LB_2d);
-    // each.debug_info.re_projected_pts.push_back(P_RB_2d);
-    // each.debug_info.re_projected_pts.push_back(P_RT_2d);
+    each.imu_to_armor.yaw = Sophus::SO2d::exp(optimized_yaw);
   }
 }
 
+void NeTracker2D::reprojectAndFillDebugInfo()
+{
+  for (auto& each : current_aim_.aim_armors)
+  {
+    Eigen::Quaterniond q_c_i =
+        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
+
+    // 计算相机到装甲板的旋转
+    Eigen::Quaterniond q_c_a = q_c_i * each.imu_to_armor.q;
+
+    // 计算相机到装甲板平移
+    auto t_c_a = q_c_i * each.imu_to_armor.t -
+                 gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
+
+    Eigen::Vector3d P_LT =
+        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[0] + t_c_a;
+    Eigen::Vector3d P_LB =
+        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[1] + t_c_a;
+    Eigen::Vector3d P_RB =
+        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[2] + t_c_a;
+    Eigen::Vector3d P_RT =
+        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[3] + t_c_a;
+
+    P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
+    P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
+    P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
+    P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
+
+    cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
+    cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
+    cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
+    cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
+
+    each.debug_info.re_projected_pts.clear();
+    each.debug_info.re_projected_pts.push_back(P_LT_2d);
+    each.debug_info.re_projected_pts.push_back(P_LB_2d);
+    each.debug_info.re_projected_pts.push_back(P_RB_2d);
+    each.debug_info.re_projected_pts.push_back(P_RT_2d);
+  }
+}
 } // namespace ne_vision

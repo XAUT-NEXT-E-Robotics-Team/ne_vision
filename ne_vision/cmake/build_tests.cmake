@@ -49,8 +49,11 @@ include(${CMAKE_CURRENT_LIST_DIR}/install_resource.cmake)
 ###################################
 # Find all dependencies for tests #
 ###################################
-
 find_package(GTest REQUIRED)
+
+# 你个mathgl，为啥就不能把路径写正常一点
+set(MathGL2_DIR "/usr/local/lib/cmake/mathgl")
+find_package(MathGL2 REQUIRED)
 
 #######################################
 # Build all tests in first categories #
@@ -69,8 +72,27 @@ macro(build_unit_test test_name)
         ${test_name}
         PROPERTIES
         INSTALL_RPATH
-        "$ORIGIN/../lib")
+        "$ORIGIN/../lib"
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+        LINK_FLAGS "-Wl,--disable-new-dtags")
     gtest_discover_tests(${test_name})
+endmacro()
+
+macro(build_manual_test test_name other_deps)
+    message(STATUS "[ne_vision][test] Building test: ${test_name}.cpp")
+    add_executable(${test_name} test/${test_name}.cpp)
+    target_link_libraries(
+        ${test_name}
+        PRIVATE
+        ne_vision
+        ${other_deps})
+    set_target_properties(
+        ${test_name}
+        PROPERTIES
+        INSTALL_RPATH
+        "$ORIGIN/../lib"
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+        LINK_FLAGS "-Wl,--disable-new-dtags")
 endmacro()
 
 build_unit_test(ut_channel_and_task)
@@ -82,11 +104,10 @@ build_unit_test(ut_log_and_param)
 
 message(STATUS "[ne_vision][test] Building manual tests...")
 
-message(STATUS "[ne_vision][test] Building test: mt_auto_aim_video_test.cpp")
-add_executable(mt_auto_aim_video_test test/mt_auto_aim_video_test.cpp)
-target_link_libraries(mt_auto_aim_video_test PRIVATE ne_vision)
-set_target_properties(mt_auto_aim_video_test PROPERTIES INSTALL_RPATH
-    "$ORIGIN/../lib")
+build_manual_test(mt_auto_aim_video_test "")
+
+# 为什么这里必须要显式的写ceres
+build_manual_test(mt_tracker_2d "Ceres::ceres;mgl")
 
 ####################
 # Install all test #
@@ -104,6 +125,7 @@ install(
     ut_channel_and_task
     ut_log_and_param
     mt_auto_aim_video_test
+    mt_tracker_2d
     RUNTIME
     DESTINATION test/bin
 )
@@ -111,5 +133,10 @@ install(
 # install resource
 install_resource(
     SOURCE ${CMAKE_SOURCE_DIR}/test/video
+    DESTINATION share/test
+)
+
+install_resource(
+    SOURCE ${CMAKE_SOURCE_DIR}/test/config
     DESTINATION share/test
 )

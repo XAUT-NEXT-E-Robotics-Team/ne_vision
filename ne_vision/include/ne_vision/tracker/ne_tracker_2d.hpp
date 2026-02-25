@@ -30,12 +30,12 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// This node(part) do these things:
-// 1. Choose the aim car according to the distance of center and the priority.
-// 2. Track 2D armors and put true ID for them.
-// 3. Use pnp to solve the 3D position of each armor in CAMERA FRAME.
-// 4. Match the stamp of each armor data from cameras with the nearest IMU data.
-// 5. Transform the 3D position of each armor from CAMERA FRAME to IMU FRAME.
+// 没啥跟踪的2D跟踪器，干如下几件事情
+// 1. 跟踪（反击打灯效，防止一两次误识别更改目标）
+// 2. 选板（按照中心选板，还能给后面减少压力）
+// 3. PNP
+// 4. 优化（上交优化或者自创的一种优化，要计算好协方差）
+// 5. 重投影调试（这个可以没有）
 //
 // Data flow:
 // [ne_armors_2d] + [ne_imu_data] >=> tracker_2d >=> [ne_armors_3d]
@@ -134,6 +134,7 @@ private:
   const Eigen::Vector3d*              t_;
 };
 
+// 更全面的优化，包括平移，用来提取雅克比
 struct OptimizeCost
 {
   OptimizeCost(const std::vector<Eigen::Vector2d>* img_points,
@@ -272,12 +273,13 @@ private:
   void transformToImuFrame();
   void yawOptimize();
   void optimize();
+  void reprojectAndFillDebugInfo();
 
   std::string name_;
 
-  NeArmors2DCsPtr_t armors_2d_cs_ptr_;
-  NeImuDataCsPtr_t  imu_data_cs_ptr_;
-  NeArmors3DCsPtr_t armors_3d_cs_ptr_;
+  NeArmors2DCsPtr_t armors_2d_c_sPtr_;
+  NeImuDataCsPtr_t  imu_data_c_sPtr_;
+  NeArmors3DCsPtr_t armors_3d_c_sPtr_;
 
   NeArmors2D_t armors_2d_;
   NeArmors3D_t armors_3d_;

@@ -30,49 +30,31 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// ne_tracker_2d >=> [ne_armors_3d] >=> ne_observer_3d
-//
+// 读取环境变量，构造路径
 
 #pragma once
 
-#include <chrono>
-#include <vector>
+#include <string>
 
-#include "Eigen/Dense"
-#include "sophus/so2.hpp"
-
-#include "ne_vision/utils/ne_math.hpp"
+#include "ne_vision/utils/ne_debug.hpp"
 
 namespace ne_vision
 {
-namespace interfaces
+
+inline std::string GetInstallPath()
 {
-
-struct NeArmors3D_t
-{
-  // stamp after matching with IMU data.
-  std::chrono::steady_clock::time_point cap_stamp;
-
-  std::string aim_id;
-
-  struct Armor3D_t
+  static std::string install_path_str = "";
+  if (install_path_str.empty())
   {
-    // Pose IMU
-    Eigen::Vector3d    t;
-    Eigen::Quaterniond q;
-    Sophus::SO2d       yaw;
+    const char* install_path_name = "NE_VISION_INSTALL_PATH";
+    const char* install_path = std::getenv(install_path_name);
+    NV_ASSERT(
+        install_path != nullptr &&
+        "You need to set the NE_VISION_INSTALL_PATH environment variable.");
+    install_path_str = std::string(install_path);
+  }
 
-    // Use to visualization.
-    struct Debug_t
-    {
-      // LT, LB, RB, RT
-      std::vector<cv::Point2d> re_projected_pts;
+  return install_path_str;
+}
 
-    } debug;
-  };
-
-  std::vector<Armor3D_t> armors;
-};
-
-} // namespace interfaces
 } // namespace ne_vision

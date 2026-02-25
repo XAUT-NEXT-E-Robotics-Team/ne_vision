@@ -58,6 +58,7 @@ find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenVINO REQUIRED)
 find_package(Ceres REQUIRED)
+message(STATUS "Ceres libraries: ${CERES_LIBRARIES}")
 
 #################################
 # Build basic ne_vision library #
@@ -114,8 +115,6 @@ target_link_libraries(
     PRIVATE
     Ceres::ceres
 )
-
-target_include_directories(${PROJECT_NAME} PUBLIC $<TARGET_PROPERTY:Ceres::ceres,INTERFACE_INCLUDE_DIRECTORIES>)
 
 ###########
 # Install #

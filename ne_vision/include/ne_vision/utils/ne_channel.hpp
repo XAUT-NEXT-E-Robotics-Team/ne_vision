@@ -345,6 +345,12 @@ public:
     return true;
   }
 
+  std::deque<T> GetAllData() const
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+    return data_queue_;
+  }
+
   /**
    * @brief Gets the current number of elements in the channel.
    * @return The number of elements.

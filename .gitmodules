@@ -8,3 +8,6 @@
 [submodule "ne_vision/3rds/yaml-cpp"]
 	path = ne_vision/3rds/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "ne_vision/3rds/mathgl"]
+	path = ne_vision/3rds/mathgl
+	url = https://github.com/aabalakin/mathgl.git

@@ -117,6 +117,8 @@ set_target_properties(
   PREFIX "lib"
   OUTPUT_NAME "ne_vision_gd.${ARCHITECTURE}"
   INSTALL_RPATH "$ORIGIN"
+  INSTALL_RPATH_USE_LINK_PATH TRUE
+  LINK_FLAGS "-Wl,--disable-new-dtags"
   BUILD_WITH_INSTALL_RPATH TRUE # Use INSTALL_RPATH for build tree
 )
 

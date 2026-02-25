@@ -37,6 +37,7 @@
 #include "Eigen/Dense"
 #include "opencv2/opencv.hpp"
 #include "opencv2/core/eigen.hpp"
+#include <Eigen/src/Geometry/Quaternion.h>
 
 namespace ne_vision
 {
@@ -93,6 +94,17 @@ inline double RadToDeg(double rad) { return rad * 180.0 / M_PI; }
 inline double WrapToPi(double rad)
 {
   return std::fmod(rad + M_PI, 2 * M_PI) - M_PI;
+}
+
+inline Eigen::Quaterniond
+EulerToQuaternion(double roll, double pitch, double yaw)
+{
+  Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
+  Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
+  Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
+
+  Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+  return q;
 }
 
 } // namespace math
