@@ -35,12 +35,14 @@
 #include "ne_vision/tracker/ne_tracker_2d.hpp"
 
 #include <Eigen/src/Core/Matrix.h>
+#include <Eigen/src/Geometry/AngleAxis.h>
 #include <Eigen/src/Geometry/Quaternion.h>
 #include <algorithm>
 #include <ceres/types.h>
 #include <chrono>
 #include <vector>
 
+#include "ne_vision/utils/ne_debug.hpp"
 #include "opencv2/opencv.hpp"
 #include "opencv2/core/eigen.hpp"
 
@@ -212,9 +214,9 @@ NeTracker2D::NeTracker2D(const std::string&       name,
 
 void NeTracker2D::Tarck2D()
 {
+
   // std::chrono::steady_clock::time_point now =
   // std::chrono::steady_clock::now();
-
   if (!armors_2d_c_sPtr_->Receive(armors_2d_))
   {
     // 不会发生吧，除非把任务触发方式设置错了。
@@ -243,7 +245,8 @@ void NeTracker2D::Tarck2D()
 
   transformToImuFrame();
   // yawOptimize();
-  optimize();
+  // optimize();
+  lmOptimize();
 
   // ONLY FOR DEBUG
   reprojectAndFillDebugInfo();
@@ -508,7 +511,6 @@ void NeTracker2D::yawOptimize()
                           Eigen::Vector3d::UnitY());
 
     // 更新一下imu_to_armor
-    each.imu_to_armor.q = q_i_a;
     each.imu_to_armor.t =
         imu_data_.quat *
         (gimbal_to_camera_.q * each.camera_to_armor.t + gimbal_to_camera_.t);
@@ -549,6 +551,8 @@ void NeTracker2D::optimize()
     yaw_optimize_.q_i_g = imu_data_.quat;
     yaw_optimize_.t_g_c = gimbal_to_camera_.t;
 
+    auto yaw_i = math::QuaternionToYaw(each.imu_to_armor.q);
+    nv_rec_g().log("yaw_no", rerun::Scalars(yaw_i));
     // pnp结果直接当yaw的初值，收敛更快
     yaw_optimize_.yaw = math::QuaternionToYaw(each.imu_to_armor.q);
 
@@ -571,9 +575,11 @@ void NeTracker2D::optimize()
                           Eigen::Vector3d::UnitY());
 
     // 更新一下imu_to_armor
-    each.imu_to_armor.q = q_i_a;
+    // each.imu_to_armor.q = q_i_a;
     each.imu_to_armor.t = yaw_optimize_.t;
     each.imu_to_armor.yaw = Sophus::SO2d::exp(optimized_yaw);
+
+    nv_rec_g().log("yaw_sjtu", rerun::Scalars(optimized_yaw));
   }
 }
 
@@ -615,6 +621,266 @@ void NeTracker2D::reprojectAndFillDebugInfo()
     each.debug_info.re_projected_pts.push_back(P_LB_2d);
     each.debug_info.re_projected_pts.push_back(P_RB_2d);
     each.debug_info.re_projected_pts.push_back(P_RT_2d);
+  }
+}
+
+// 实现原理见docs：pnp_optimize_and_cov.md
+// 这个函数是自己写的基础运算，发现贼慢，然后丢进去AI优化
+// 所以很多东西我也不知道为啥这么写的，别问我啊。
+// 我电脑测试结果大概一个装甲板1ms多，太慢就不对咯
+void NeTracker2D::lmOptimize()
+{
+  NeScopedTimer timer;
+  timer.Start();
+
+  constexpr int    kMaxN = 5;         // 外层最大循环次数
+  constexpr int    kMaxInnerIter = 4; // 内层尝试调整阻尼的最大次数
+  constexpr double kEpsilon = 1e-6;
+  constexpr double kWr = 15.0;
+  constexpr double kWp = 15.0;
+  constexpr double kTargetRoll = 0.0;
+
+  // 提取畸变参数
+  std::vector<double> D;
+  if (!pnp_param_.dist_coeffs.empty())
+    pnp_param_.dist_coeffs.convertTo(D, CV_64F);
+  const double k1 = D.size() > 0 ? D[0] : 0.0;
+  const double k2 = D.size() > 1 ? D[1] : 0.0;
+  const double p1 = D.size() > 2 ? D[2] : 0.0;
+  const double p2 = D.size() > 3 ? D[3] : 0.0;
+  const double k3 = D.size() > 4 ? D[4] : 0.0;
+
+  // 理论固定pitch
+  const double fixed_pitch_rad = (current_aim_.aim_id == "outpost")
+                                     ? math::DegToRad(-15)
+                                     : math::DegToRad(15);
+
+  for (auto& each : current_aim_.aim_armors)
+  {
+
+    double fx = pnp_param_.camera_matrix_eigen(0, 0);
+    double fy = pnp_param_.camera_matrix_eigen(1, 1);
+    double cx = pnp_param_.camera_matrix_eigen(0, 2);
+    double cy = pnp_param_.camera_matrix_eigen(1, 2);
+
+    // 手动去畸变
+    std::vector<Eigen::Vector2d> P_uv_hat_s;
+    P_uv_hat_s.reserve(4);
+
+    std::vector<Eigen::Vector2d> raw_pts{
+        each.armor.LT, each.armor.LB, each.armor.RB, each.armor.RT};
+
+    // AI 的，懂不了一点
+    for (const auto& pt : raw_pts)
+    {
+      double x0 = (pt.x() - cx) / fx;
+      double y0 = (pt.y() - cy) / fy;
+      double x = x0, y = y0;
+
+      for (int j = 0; j < 5; ++j)
+      {
+        double r2 = x * x + y * y;
+        double icdist =
+            1.0 / (1.0 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2);
+        double deltaX = 2 * p1 * x * y + p2 * (r2 + 2 * x * x);
+        double deltaY = p1 * (r2 + 2 * y * y) + 2 * p2 * x * y;
+        x = (x0 - deltaX) * icdist;
+        y = (y0 - deltaY) * icdist;
+      }
+      P_uv_hat_s.emplace_back(x * fx + cx, y * fy + cy);
+    }
+
+    std::vector<Eigen::Vector3d>& P_a_s =
+        pnp_param_.GetObjectPointsEigen(current_aim_.aim_id);
+
+    Eigen::Matrix3d R_c_i =
+        (imu_data_.quat * gimbal_to_camera_.q).conjugate().matrix();
+    Eigen::Matrix3d R_c_g = gimbal_to_camera_.q.conjugate().matrix();
+    Eigen::Vector3d const_t_offset = R_c_g * gimbal_to_camera_.t;
+
+    Eigen::Vector<double, 6> x;
+    x.head<3>() = each.imu_to_armor.t;
+    x(3) = kTargetRoll;
+    x(4) = fixed_pitch_rad;
+    x(5) = math::QuaternionToYaw(each.imu_to_armor.q);
+
+    // 只算残差的
+    auto eval_residual = [&](const Eigen::Vector<double, 6>& state_x,
+                             Eigen::Matrix<double, 10, 1>&   res) -> bool {
+      double cr = std::cos(state_x(3)), sr = std::sin(state_x(3));
+      double cp = std::cos(state_x(4)), sp = std::sin(state_x(4));
+      double cy_ = std::cos(state_x(5)), sy = std::sin(state_x(5));
+
+      Eigen::Matrix3d Rx, Ry, Rz;
+      Rx << 1, 0, 0, 0, cr, -sr, 0, sr, cr;
+      Ry << cp, 0, sp, 0, 1, 0, -sp, 0, cp;
+      Rz << cy_, -sy, 0, sy, cy_, 0, 0, 0, 1;
+
+      Eigen::Matrix3d R_c_a = R_c_i * (Rz * Ry * Rx);
+      Eigen::Vector3d t_base = R_c_i * state_x.head<3>() - const_t_offset;
+
+      for (size_t j = 0; j < 4; ++j)
+      {
+        Eigen::Vector3d P_c = R_c_a * P_a_s[j] + t_base;
+        if (std::abs(P_c.z()) < 1e-6)
+          return false;
+
+        double inv_z = 1.0 / P_c.z();
+        res(2 * j) = P_uv_hat_s[j].x() - (fx * P_c.x() * inv_z + cx);
+        res(2 * j + 1) = P_uv_hat_s[j].y() - (fy * P_c.y() * inv_z + cy);
+      }
+      res(8) = kWr * (kTargetRoll - state_x(3));
+      res(9) = kWp * (fixed_pitch_rad - state_x(4));
+      return true;
+    };
+
+    // 算残差和雅可比
+    auto eval_residual_and_jac =
+        [&](const Eigen::Vector<double, 6>& state_x,
+            Eigen::Matrix<double, 10, 1>&   res,
+            Eigen::Matrix<double, 10, 6>&   jac) -> bool {
+      double cr = std::cos(state_x(3)), sr = std::sin(state_x(3));
+      double cp = std::cos(state_x(4)), sp = std::sin(state_x(4));
+      double cy_ = std::cos(state_x(5)), sy = std::sin(state_x(5));
+
+      Eigen::Matrix3d Rx, Ry, Rz;
+      Rx << 1, 0, 0, 0, cr, -sr, 0, sr, cr;
+      Ry << cp, 0, sp, 0, 1, 0, -sp, 0, cp;
+      Rz << cy_, -sy, 0, sy, cy_, 0, 0, 0, 1;
+
+      Eigen::Matrix3d R_c_a = R_c_i * (Rz * Ry * Rx);
+      Eigen::Vector3d t_base = R_c_i * state_x.head<3>() - const_t_offset;
+
+      Eigen::Matrix3d dRxdr, dRydp, dRzdy;
+      dRxdr << 0, 0, 0, 0, -sr, -cr, 0, cr, -sr;
+      dRydp << -sp, 0, cp, 0, 0, 0, -cp, 0, -sp;
+      dRzdy << -sy, -cy_, 0, cy_, -sy, 0, 0, 0, 0;
+
+      Eigen::Matrix3d R_c_i_dRidr = R_c_i * (Rz * Ry * dRxdr);
+      Eigen::Matrix3d R_c_i_dRidp = R_c_i * (Rz * dRydp * Rx);
+      Eigen::Matrix3d R_c_i_dRidy = R_c_i * (dRzdy * Ry * Rx);
+
+      for (size_t j = 0; j < 4; ++j)
+      {
+        Eigen::Vector3d P_c = R_c_a * P_a_s[j] + t_base;
+
+        // 除0预防
+        if (std::abs(P_c.z()) < 1e-6)
+          return false;
+
+        double inv_z = 1.0 / P_c.z();
+        double inv_z2 = inv_z * inv_z;
+
+        res(2 * j) = P_uv_hat_s[j].x() - (fx * P_c.x() * inv_z + cx);
+        res(2 * j + 1) = P_uv_hat_s[j].y() - (fy * P_c.y() * inv_z + cy);
+
+        Eigen::Matrix<double, 2, 3> Jc;
+        Jc << fx * inv_z, 0, -fx * P_c.x() * inv_z2, 0, fy * inv_z,
+            -fy * P_c.y() * inv_z2;
+
+        Eigen::Matrix<double, 3, 6> Jp;
+        Jp.block<3, 3>(0, 0) = R_c_i;
+        Jp.block<3, 1>(0, 3) = R_c_i_dRidr * P_a_s[j];
+        Jp.block<3, 1>(0, 4) = R_c_i_dRidp * P_a_s[j];
+        Jp.block<3, 1>(0, 5) = R_c_i_dRidy * P_a_s[j];
+
+        jac.block<2, 6>(2 * j, 0) = -(Jc * Jp);
+      }
+
+      res(8) = kWr * (kTargetRoll - state_x(3));
+      res(9) = kWp * (fixed_pitch_rad - state_x(4));
+
+      jac.block<2, 6>(8, 0).setZero();
+      jac(8, 3) = -kWr;
+      jac(9, 4) = -kWp;
+
+      return true;
+    };
+
+    /* === 具体算法实现部分 === */
+    double                       lambda = 1e-3;
+    Eigen::Matrix<double, 10, 1> r;
+    Eigen::Matrix<double, 10, 6> J;
+
+    if (!eval_residual(x, r))
+    {
+      continue;
+    }
+
+    double current_cost = 0.5 * r.squaredNorm();
+
+    for (int i = 0; i < kMaxN; ++i)
+    {
+      eval_residual_and_jac(x, r, J);
+
+      Eigen::Matrix<double, 6, 6> H = J.transpose() * J;
+      Eigen::Matrix<double, 6, 1> g = -J.transpose() * r;
+
+      // AI 的 梯度早退机制 (Early Exit)
+      // 如果梯度各分量的绝对值最大项已经极其微小，说明已经到达局部最优解，直接终止
+      if (g.lpNorm<Eigen::Infinity>() < 1e-6)
+        break;
+
+      bool                     step_accepted = false;
+      Eigen::Vector<double, 6> delta;
+
+      // 内循环得到合适的阻尼值，LM算法比较重要的一点
+      for (int ii = 0; ii < kMaxInnerIter; ++ii)
+      {
+        Eigen::Matrix<double, 6, 6> H_lm = H;
+
+        // Marquardt 尺度自适应
+        Eigen::Vector<double, 6> h_diag = H.diagonal();
+        H_lm.diagonal().array() += lambda * (h_diag.array() + 1e-5);
+
+        // 对于H这正定的，llt比较快
+        delta = H_lm.llt().solve(g);
+
+        if (delta.hasNaN() || delta.norm() > 1e6)
+          break;
+        if (delta.norm() < kEpsilon)
+        {
+          step_accepted = true;
+          break;
+        }
+
+        Eigen::Vector<double, 6>     x_new = x + delta;
+        Eigen::Matrix<double, 10, 1> r_new;
+
+        if (!eval_residual(x_new, r_new))
+        {
+          lambda *= 10.0;
+          continue;
+        }
+
+        double new_cost = 0.5 * r_new.squaredNorm();
+
+        if (new_cost < current_cost)
+        {
+          x = x_new;
+          current_cost = new_cost;
+          lambda = std::max(1e-7, lambda / 10.0);
+          step_accepted = true;
+          break;
+        }
+        else
+        {
+          lambda *= 10.0;
+        }
+      }
+
+      if (delta.hasNaN() || delta.norm() > 1e6)
+        break;
+      if (delta.norm() < kEpsilon || !step_accepted)
+        break;
+    }
+
+    each.imu_to_armor.t = x.head<3>();
+    each.imu_to_armor.yaw = Sophus::SO2d::exp(x(5));
+
+    timer.Stop();
+    NV_INFO("LM optimization took {:.2f} ms", timer.ToMs());
+    nv_rec_g().log("yaw_our", rerun::Scalars(x(5)));
   }
 }
 } // namespace ne_vision

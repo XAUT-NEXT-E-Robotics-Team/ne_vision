@@ -30,59 +30,6 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// Some tool helps you debug your code, such as print the time cost of a
-// function and the ASSERT
+// 还是依旧的全耦合，懂的都懂
 
 #pragma once
-
-#include <cassert>
-#include <filesystem>
-#include <chrono>
-
-#ifndef NDEBUG
-#define NV_ASSERT(expr)             assert(expr)
-#define NV_STATIC_ASSERT(expr, msg) static_assert(expr, msg)
-#define NV_ASSERT_PATH(file)                                                   \
-  assert(std::filesystem::exists(file) && "File " #file "Not Found!")
-#else
-#define NV_ASSERT(expr)             ((void)0)
-#define NV_STATIC_ASSERT(expr, msg) ((void)0)
-#define NV_ASSERT_FILE(file)        ((void)0)
-#define NV_ASSERT_PATH(dir)         ((void)0)
-#endif
-
-namespace ne_vision
-{
-
-class NeScopedTimer
-{
-public:
-  NeScopedTimer() = default;
-  ~NeScopedTimer() = default;
-  inline void Start() { start_time_ = std::chrono::steady_clock::now(); }
-
-  inline void Stop() { end_time_ = std::chrono::steady_clock::now(); }
-
-  inline double ToS()
-  {
-    return std::chrono::duration<double>(end_time_ - start_time_).count();
-  }
-
-  inline double ToMs()
-  {
-    return std::chrono::duration<double, std::milli>(end_time_ - start_time_)
-        .count();
-  }
-
-  inline double ToUs()
-  {
-    return std::chrono::duration<double, std::micro>(end_time_ - start_time_)
-        .count();
-  }
-
-private:
-  std::chrono::steady_clock::time_point start_time_;
-  std::chrono::steady_clock::time_point end_time_;
-};
-
-} // namespace ne_vision

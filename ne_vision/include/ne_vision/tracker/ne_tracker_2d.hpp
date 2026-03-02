@@ -273,6 +273,7 @@ private:
   void transformToImuFrame();
   void yawOptimize();
   void optimize();
+  void lmOptimize();
   void reprojectAndFillDebugInfo();
 
   std::string name_;

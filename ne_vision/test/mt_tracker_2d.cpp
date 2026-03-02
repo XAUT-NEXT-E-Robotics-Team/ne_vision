@@ -116,6 +116,7 @@ int main()
 
   std::vector<double> rads_un_wrap;
   std::vector<double> yaws;
+  std::vector<double> distances;
 
   for (double deg = 0; deg <= YAW_WITH_IMU_TEST_MAX_DEG;
        deg += YAW_WITH_IMU_TEST_STEP_DEG)
@@ -146,15 +147,12 @@ int main()
     {
       NV_WARN("No armor in armors_3d received");
     }
-    else
-    {
-      NV_DEBUG("Received armor with yaw: {} deg",
-               math::RadToDeg(armors_3d.armors[0].yaw.log()));
-    }
     rads_un_wrap.push_back(rad_un_wrap);
     yaws.push_back(armors_3d.armors.empty()
                        ? 0
                        : math::WrapToPi(armors_3d.armors[0].yaw.log()));
+    distances.push_back(
+        armors_3d.armors.empty() ? 0 : armors_3d.armors[0].t.norm());
   }
 
   // 画图
@@ -177,5 +175,29 @@ int main()
   gr.Plot(data_imu_yaw, data_armor_yaw, "r*");
   auto img = MglToMat(gr);
   cv::imshow("Yaw with IMU Test", img);
-  cv::waitKey(0);
+
+  gr.SetSize(800, 600);
+  gr.SetRanges(0,
+               math::DegToRad(YAW_WITH_IMU_TEST_MAX_DEG),
+               0,
+               *std::max_element(distances.begin(), distances.end()));
+  gr.Axis();
+  gr.Grid();
+  mglData data_distance(distances.size());
+  for (size_t i = 0; i < distances.size(); ++i)
+  {
+    data_distance.a[i] = distances[i];
+  }
+  gr.Plot(data_imu_yaw, data_distance, "b*");
+  auto img_distance = MglToMat(gr);
+  cv::imshow("Distance with IMU Test", img_distance);
+re:
+  if (cv::waitKey(0) == 27)
+  {
+    return 0;
+  }
+  else
+  {
+    goto re;
+  }
 }
