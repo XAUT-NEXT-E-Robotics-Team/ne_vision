@@ -16,34 +16,34 @@
 
 ## 2. 方法
 
-#### 1. IMU坐标转相机坐标
+### 1. IMU坐标转相机坐标
 
 定义以下坐标系和变换关系：
 
-* IMU坐标系到云台（已知）： $^I_GT$
+* IMU坐标系到云台（已知）： ${}^{I}_{G}T$
 
-* 云台到相机（已知）：$^G_CT \ = \ ^G_{C'}T \ ^{C'}_CT$，由于G系到C系存在一个旋转，又为了方便调试相对于云台调参，因此设置一个与C系平移一致但是旋转不同的C'系，这里可以理解为存在一个云台到相机坐标系就行。
+* 云台到相机（已知）：${}^{G}_{C}T = {}^{G}_{C'}T {}^{C'}_{C}T$，由于G系到C系存在一个旋转，又为了方便调试相对于云台调参，因此设置一个与C系平移一致但是旋转不同的C'系，这里可以理解为存在一个云台到相机坐标系就行。
 
-* 相机到装甲板：$^C_AT$
+* 相机到装甲板：${}^{C}_{A}T$
 
 我们可以简单计算出：
 
 $$
-^I_AT \ = \ ^I_GT \ ^G_CT \ ^C_AT
+{}^{I}_{A}T = {}^{I}_{G}T {}^{G}_{C}T {}^{C}_{A}T
 $$
 
-然后通过移项和求逆（当然不需要实际去求，根据旋转正交性），可以得到$^C_AT$
+然后通过移项和求逆（当然不需要实际去求，根据旋转正交性），可以得到${}^{C}_{A}T$
 
-这里需要记住我们可以目的是去优化得到$^I_AT$
+这里需要记住我们可以目的是去优化得到${}^{I}_{A}T$
 
-#### 2. 重投影和重投影误差计算
+### 2. 重投影和重投影误差计算
 
 首先计算经过畸变修正后的四点坐标，此操作可由opencv的undistortPoints方便得到。这些点是重投影后应该处于的实际位置$\hat P_i$。注意，有hat的是观测值
 
 根据1.的内容，可以利用内参方便计算重投影：
 
 $$
-P_i = \ ^{UV}P_i = K(^C_AR \ ^AP_i + \ ^C_At) / z
+P_i = {}^{UV}P_i = K({}^{C}_{A}R {}^{A}P_i + {}^{C}_{A}t) / z
 $$
 
 注意：z是括号式计算得到坐标的z轴坐标值，计算得到的左侧结果是齐次坐标系，需要进行转换。i = 0,1,2,3。
@@ -54,9 +54,9 @@ $$
 Reprojection \ Cost = rc = \sum_{i=0}^{3}{||P_i-\hat P_i||^2}
 $$
 
-#### 3. pitch和roll软约束
+### 3. pitch和roll软约束
 
-紧接着，为了解决固定$^I_AR$中pitch和roll导致在实际运行时产生异常的情况，此处放弃直接固定pitch和roll，而是将其作为优化目标，并采用如下cost作为优化目标。
+紧接着，为了解决固定${}^{I}_{A}R$中pitch和roll导致在实际运行时产生异常的情况，此处放弃直接固定pitch和roll，而是将其作为优化目标，并采用如下cost作为优化目标。
 
 $$
 Cost = c = rc + w_{r}^2(\theta_r - 0°)^2 + w_{p}^2(\theta_p - 15°)^2 
@@ -64,12 +64,12 @@ $$
 
 增加的惩罚项相比于三自由度全优化，可以将pitch和roll更好的拉向理论值。可以看到，在rc代价大时（优化器将会更加关注rc的代价而调整pitch和roll，试图取得rc代价的进一步降低），而在rc代价较小（优化器会更倾向于尝试将pitch和roll向理论值逼近）。权重的平方只是为了后续计算残差方便。
 
-#### 4. 非线性最小二乘的问题描述
+### 4. 非线性最小二乘的问题描述
 
 我们要解决的是如下的非线性最小二乘问题
 
 $$
-^I_AT^* = x^* = [x,y,z,\theta_r, \theta_p, \theta_y]^T = argmin(\frac{1}{2}c)
+{}^{I}_{A}T^* = x^* = [x,y,z,\theta_r, \theta_p, \theta_y]^T = argmin(\frac{1}{2}c)
 $$
 
 首先我们列写10维的残差
@@ -93,31 +93,31 @@ $$
 我们将上述坐标变换过程列写为平移旋转的形式
 
 $$
-^C_AR \ = \ ^C_GR \ ^G_IR \ ^I_AR
+{}^{C}_{A}R = {}^{C}_{G}R {}^{G}_{I}R {}^{I}_{A}R
 $$
 
 $$
-^C_At \ = \ ^C_IR \ ^I_At \ - \ ^C_GR \ ^G_Ct 
+{}^{C}_{A}t = {}^{C}_{I}R {}^{I}_{A}t - {}^{C}_{G}R {}^{G}_{C}t 
 $$
 
 带入装甲板坐标点，我们可以得到
 
 $$
-^CP \ = \ ^C_IR \ ^I_AR \ ^AP \ + \ ^C_IR \ ^I_At \ - \ ^C_GR \ ^G_Ct 
+{}^{C}P = {}^{C}_{I}R {}^{I}_{A}R {}^{A}P + {}^{C}_{I}R {}^{I}_{A}t - {}^{C}_{G}R {}^{G}_{C}t 
 $$
 
 然后我们可以重投影
 
 $$
-^{UV}P \ = \ K \ ^CP / z
+{}^{UV}P = K {}^{C}P / z
 $$
 
-其中：$^I_AR$与$^I_At$涵盖我们要优化的信息$[x,y,z,\theta_r, \theta_p, \theta_y]^T$
+其中：${}^{I}_{A}R$与${}^{I}_{A}t$涵盖我们要优化的信息$[x,y,z,\theta_r, \theta_p, \theta_y]^T$
 
 我们首先对前8行求导，对于前8行的任意一组
 
 $$
-J_i (\in \mathbb{R}^{2\times6}) = \frac{\partial (u_i, v_i)}{\partial \ ^CP }\frac{\partial \ ^CP}{\partial \ x^* }
+J_i (\in \mathbb{R}^{2\times6}) = \frac{\partial (u_i, v_i)}{\partial {}^{C}P }\frac{\partial {}^{C}P}{\partial x^* }
 $$
 
 对于第一部分，我们知道内参矩阵：
@@ -134,7 +134,7 @@ $$
 因此有
 
 $$
-\frac{\partial u_i}{\partial \ ^CP } = 
+\frac{\partial u_i}{\partial {}^{C}P } = 
 \begin{bmatrix} 
 \frac{f_x}{z_c} & 0 &
 -\frac{x_cf_x}{z_c^2} 
@@ -142,7 +142,7 @@ $$
 $$
 
 $$
-\frac{\partial v_i}{\partial \ ^CP } = 
+\frac{\partial v_i}{\partial {}^{C}P } = 
 \begin{bmatrix} 
 0 & \frac{f_y}{z_c} &
 -\frac{y_cf_y}{z_c^2} 
@@ -162,32 +162,31 @@ $$
 对于第二部分，我们容易对平移求偏导
 
 $$
-\frac{\partial \ ^CP}{\partial \ t^* } \ = \ ^C_IR
+\frac{\partial {}^{C}P}{\partial t^* } = {}^{C}_{I}R
 $$
 
 对于旋转部分，有
 
 $$
-\frac{\partial \ ^CP}{\partial \ r^* } \ = 
-\ ^C_IR \frac{\partial \ ^I_AR}{\partial \ r^* } \ ^AP
+\frac{\partial {}^{C}P}{\partial r^* } = {}^{C}_{I}R \frac{\partial {}^{I}_{A}R}{\partial r^* } {}^{A}P
 $$
 
-所以我们只需要求取$\frac{\partial \ ^I_AR}{\partial \ r^* }$，该式是一个标准的旋转矩阵对欧拉角求雅可比，不会可以AI一下，本质上就是三角函数求导。这里直接给出结论
+所以我们只需要求取$\frac{\partial {}^{I}_{A}R}{\partial r^* }$，该式是一个标准的旋转矩阵对欧拉角求雅可比，不会可以AI一下，本质上就是三角函数求导。这里直接给出结论
 
 $$
-^I_AR = R_zR_yR_x
-$$
-
-$$
-\frac{\partial \ ^I_A R}{\partial \theta_y} = \left( \frac{\partial R_z}{\partial \theta_y} \right) \cdot R_y \cdot R_x
+{}^{I}_{A}R = R_zR_yR_x
 $$
 
 $$
-\frac{\partial \ ^I_A R}{\partial \theta_p} = R_z \cdot \left( \frac{\partial R_y}{\partial \theta_p} \right) \cdot R_x
+\frac{\partial {}^{I}_{A}R}{\partial \theta_y} = \left( \frac{\partial R_z}{\partial \theta_y} \right) \cdot R_y \cdot R_x
 $$
 
 $$
-\frac{\partial \ ^I_A R}{\partial \theta_r} = R_z \cdot R_y \cdot \left( \frac{\partial R_x}{\partial \theta_r} \right)
+\frac{\partial {}^{I}_{A}R}{\partial \theta_p} = R_z \cdot \left( \frac{\partial R_y}{\partial \theta_p} \right) \cdot R_x
+$$
+
+$$
+\frac{\partial {}^{I}_{A}R}{\partial \theta_r} = R_z \cdot R_y \cdot \left( \frac{\partial R_x}{\partial \theta_r} \right)
 $$
 
 $$
@@ -196,9 +195,7 @@ $$
 -\sin(yaw) & -\cos(yaw) & 0 \\
 \cos(yaw) & -\sin(yaw) & 0 \\
 0 & 0 & 0
-\end{bmatrix}\
-
-
+\end{bmatrix}
 $$
 
 $$
@@ -224,10 +221,10 @@ $$
 $$
 J_p = 
 \begin{bmatrix}
-^C_IR & 
-\frac{\partial \ ^CP}{\partial \ \theta_r } &
-\frac{\partial \ ^CP}{\partial \ \theta_p } &
-\frac{\partial \ ^CP}{\partial \ \theta_y }
+{}^{C}_{I}R & 
+\frac{\partial {}^{C}P}{\partial \theta_r } &
+\frac{\partial {}^{C}P}{\partial \theta_p } &
+\frac{\partial {}^{C}P}{\partial \theta_y }
 \end{bmatrix} \in \mathbb{R}^{3\times6}
 $$
 
@@ -256,11 +253,11 @@ J_0 \\ J_1 \\ J_2 \\ J_3 \\ J_s
 \end{bmatrix}
 $$
 
-#### 5. LM算法求解
+### 5. LM算法求解
 
 ## 3. 实验
 
-#### 基本信息：
+### 基本信息：
 
 * ubuntu 24.04
 
