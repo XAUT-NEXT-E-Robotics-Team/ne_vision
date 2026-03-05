@@ -44,6 +44,8 @@
 #include "rerun/archetypes/scalars.hpp"
 #include "rerun/archetypes/points2d.hpp"
 #include "rerun/recording_stream.hpp"
+#include "rerun/archetypes/scalars.hpp"
+#include "rerun/archetypes/points3d.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #endif
 

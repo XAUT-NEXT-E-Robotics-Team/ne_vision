@@ -9,13 +9,14 @@ height = 0.2
 
 [node name="Car" type="Node3D" unique_id=1212806389]
 script = ExtResource("1_qt2eu")
+rotation_speed = 0.0
 
 [node name="A0" parent="." unique_id=1534457744 instance=ExtResource("1_c35m8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.2, 0, 0)
 visible = false
 
 [node name="A2" parent="." unique_id=497492681 instance=ExtResource("1_c35m8")]
-transform = Transform3D(-0.9659258, -0.258819, 8.6094616e-08, -0.25488698, 0.95125115, -0.17364816, 0.04494337, -0.16773127, -0.98480767, -0.2, 0, 0)
+transform = Transform3D(-0.99999994, 0, -8.742277e-08, 0, 0.9999999, 0, 8.742277e-08, 0, -0.9999999, -0.2, 0, 0)
 
 [node name="A1" parent="." unique_id=277364345 instance=ExtResource("1_c35m8")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, -0.3)

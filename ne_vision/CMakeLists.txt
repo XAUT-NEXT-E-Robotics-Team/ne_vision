@@ -86,7 +86,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 add_subdirectory(3rds/yaml-cpp)
-ADD_subdirectory(3rds/Sophus)
+add_subdirectory(3rds/Sophus)
 
 if(USE_RERUN_DEBUG)
     message(STATUS "[ne_vision] Rerun debug is enabled.
@@ -94,10 +94,13 @@ if(USE_RERUN_DEBUG)
     message(STATUS "[ne_vision] Please wait for download.")
     target_compile_definitions(${PROJECT_NAME} PUBLIC USE_RERUN)
     include(FetchContent)
-    FetchContent_Declare(rerun_sdk URL
+    FetchContent_Declare(
+        rerun_sdk
+        URL
         https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
 
-    # Ensure rerun_sdk is built with -fPIC so it can be linked into our shared library
+    # Ensure rerun_sdk is built with -fPIC
+    # so it can be linked into our shared library
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     FetchContent_MakeAvailable(rerun_sdk)
     target_link_libraries(${PROJECT_NAME} PUBLIC rerun_sdk)
@@ -114,6 +117,18 @@ target_link_libraries(
     sophus
     PRIVATE
     Ceres::ceres
+)
+
+############
+# Optimize #
+############
+
+file(GLOB_RECURSE NE_VISION_UTILS_HEADERS include/ne_vision/utils/*.h include/ne_vision/utils/*.hpp)
+
+target_precompile_headers(
+    ${PROJECT_NAME}
+    PUBLIC
+    ${NE_VISION_UTILS_HEADERS}
 )
 
 ###########

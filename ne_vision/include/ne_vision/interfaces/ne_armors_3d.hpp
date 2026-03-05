@@ -57,10 +57,11 @@ struct NeArmors3D_t
 
   struct Armor3D_t
   {
-    // Pose IMU
+    // Pose from IMU
     Eigen::Vector3d    t;
     Eigen::Quaterniond q;
     Sophus::SO2d       yaw;
+    Eigen::Matrix4d    cov;
 
     // Use to visualization.
     struct Debug_t

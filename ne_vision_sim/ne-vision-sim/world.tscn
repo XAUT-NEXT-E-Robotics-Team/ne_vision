@@ -38,12 +38,11 @@ mesh = SubResource("BoxMesh_fj7yv")
 
 [node name="Car" parent="." unique_id=1212806389 instance=ExtResource("2_fj7yv")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0.1, 0)
-rotation_speed = 1.5699999999999998
-max_speed = 0.0
+max_speed = 1.0
 acceleration = 2.0
 deceleration = 2.0
-point_a = Vector3(5, 0.1, -1.5)
-point_b = Vector3(5, 0.1, 1.5)
+point_a = Vector3(6, 0.1, 0)
+point_b = Vector3(2, 0.1, 0)
 wait_time = 0.0
 
 [node name="MainCamera" type="Camera3D" parent="." unique_id=2059979115]
