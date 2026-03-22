@@ -1,3 +1,13 @@
+/*
+ * @Author: ei_code_bash && 3080152159@qq.com
+ * @Date: 2026-03-22 20:31:20
+ * @LastEditors: ei_code_bash && 3080152159@qq.com
+ * @LastEditTime: 2026-03-22 22:05:57
+ * @FilePath: /ne_vision/ne_vision/interfaces/real/src/main.cpp
+ * @Description: 我永远喜欢雪之下雪乃
+ *
+ * Copyright (c) 2026 by ei_code_bash, All Rights Reserved.
+ */
 ///////////////////////////////////////////////////////////
 //                                                       //
 //                        .                 .:-:         //
@@ -33,7 +43,8 @@
 //
 
 #include "ne_vision/ne_auto_aim.hpp"
-
+#include "real/ne_hikcam.hpp"
+#include <opencv2/highgui.hpp>
 using namespace ne_vision;
 
 int main()
@@ -49,12 +60,21 @@ int main()
 
   cv::Mat   frame;
   NeAutoAim auto_aim;
-
+  HikCam    hik_cam;
   auto_aim.Start(config_path);
-
+  hik_cam.StartDevice(0);
+  hik_cam.SetResolution(1440, 1080);
+  // hik_cam.SetPixelFormat(17301512);
+  hik_cam.SetExposureTime(8000);
+  hik_cam.SetGAIN(16.0);
+  hik_cam.SetFrameRate(120);
+  hik_cam.SetStreamOn();
+  hik_cam.GetMat(frame);
   while (1)
   {
-    auto_aim.UpdateFrame(frame, 'B');
+
+    hik_cam.GetMat(frame);
+    auto_aim.UpdateFrame(frame, 'B'); // 接收颜色
     auto_aim.UpdateTestImu(-0.0001);
     auto_aim.AutoAim();
 
@@ -68,6 +88,11 @@ int main()
     if (!re.empty())
     {
       cv::imshow("debug", re);
+    }
+    auto key = cv::waitKey(1);
+    if (key == 27)
+    {
+      break;
     }
   }
 

@@ -129,13 +129,13 @@ DO_NORMAL_TRACKING:
 
       double bm_dt = bm.get_ft(dis_center, pitch_tmp);
 
-      NV_DEBUG("dis_center: {}, pitch_tmp: {}, bm_dt: {}",
-               dis_center,
-               pitch_tmp,
-               bm_dt);
+      // NV_DEBUG("dis_center: {}, pitch_tmp: {}, bm_dt: {}",
+      //          dis_center,
+      //          pitch_tmp,
+      //          bm_dt);
 
       auto aim_point =
-          sion.PredictAndChoose(imu_data_i_, bm_dt, aim_traj_o.all_armors);
+          sion.PredictAndChoose(imu_data_i_, 0, aim_traj_o.all_armors);
       aim_traj_o.traj_points.push_back(aim_point);
 
       double aim_yaw = std::atan2(aim_point.y(), aim_point.x());

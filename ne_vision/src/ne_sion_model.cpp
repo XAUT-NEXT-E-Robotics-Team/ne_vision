@@ -162,9 +162,9 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
     _x = _x_pred;
     _eP = (_I(K * H) - K * H) * _eP;
 
-    // nv_rec_g().log("car_yaw", rerun::Scalars(_x.yaw));
-    // nv_rec_g().log("car_R1", rerun::Scalars(_x.R1));
-    // nv_rec_g().log("car_R2", rerun::Scalars(_x.R2));
+    nv_rec_g().log("car_yaw", rerun::Scalars(_x.yaw));
+    nv_rec_g().log("car_R1", rerun::Scalars(_x.R1));
+    nv_rec_g().log("car_R2", rerun::Scalars(_x.R2));
   };
 
   if (armors.armors.empty())

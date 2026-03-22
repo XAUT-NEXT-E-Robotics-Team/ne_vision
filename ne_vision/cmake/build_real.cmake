@@ -44,10 +44,25 @@ file(GLOB_RECURSE NE_VISION_REAL_HEADERS
   interfaces/real/include/*.hpp
 )
 
+set(HIK_INCLUDE_DIR "/opt/MVS/include")
+set(HIK_LIBRARY_DIR "/opt/MVS/lib/64")
+
+include_directories(${HIK_INCLUDE_DIR})
+
 add_executable(
     ne_vision_real
     ${NE_VISION_REAL_SOURCES}
     ${NE_VISION_REAL_HEADERS}
+)
+
+target_include_directories(ne_vision
+  PUBLIC
+  HIK_INCLUDE_DIR
+)
+
+target_link_libraries(ne_vision_real
+  PRIVATE
+  ${HIK_LIBRARY_DIR}/libMvCameraControl.so
 )
 
 target_include_directories(ne_vision_real
