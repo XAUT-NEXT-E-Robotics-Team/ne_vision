@@ -1,3 +1,13 @@
+/*
+ * @Author: ei_code_bash && 3080152159@qq.com
+ * @Date: 2026-03-22 20:26:57
+ * @LastEditors: ei_code_bash && 3080152159@qq.com
+ * @LastEditTime: 2026-03-22 20:30:18
+ * @FilePath: /ne_vision/ne_BallisticModel/src/ballistic_slove.cpp
+ * @Description: 我永远喜欢雪之下雪乃
+ * 
+ * Copyright (c) 2026 by ei_code_bash, All Rights Reserved. 
+ */
 #include "ballistic_slove.hpp"
 #include <cstdio>
 
@@ -34,6 +44,11 @@ namespace YUKINO
         float OssneHeight = (float)(sin(cal_pitch)* Com_ptr_ -> muzzle_v * Com_ptr_ -> ft) - 0.5 * GRAVITY * pow(Com_ptr_ -> ft,2);
         //std::cout<<OssneHeight <<std::endl; 
         return OssneHeight;
+    }
+    float BallisticModel::get_ft(float x,float cal_pitch)
+    {
+        Com_ptr_ -> ft = (float)(exp(x * Com_ptr_ -> K1) - 1) / (Com_ptr_ -> K1 * cos(cal_pitch) * Com_ptr_ -> muzzle_v);
+        return ft;
     }
     float BallisticModel::Cal_TargetposPitch(float x,float OssneHeight,float x_offset,float Ossne_offset)
     {
