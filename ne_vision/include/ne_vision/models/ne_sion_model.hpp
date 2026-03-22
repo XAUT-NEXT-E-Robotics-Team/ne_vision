@@ -167,7 +167,10 @@ public:
 
   Eigen::Vector3d
   PredictAndChoose(const interfaces::NeImuData_t& imu_data,
+                   double                         b_ds,
                    std::vector<Eigen::Vector3d>&  all_pred_armors);
+
+  NeSionState_t GetState() const { return esikf_data_.x; }
 
 private:
   // 预测状态

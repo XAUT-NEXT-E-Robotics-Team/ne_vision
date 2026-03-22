@@ -37,7 +37,10 @@
 #include "ne_vision/utils/ne_math.hpp"
 #include "ne_vision/utils/ne_param.hpp"
 
+#include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
+
 #include "ne_vision/debug/ne_vision_visualization.hpp"
+#include <Eigen/src/Core/Matrix.h>
 
 #define _x      esikf_data_.x
 #define _x_pred esikf_data_.x_pred
@@ -198,13 +201,15 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
 
 Eigen::Vector3d
 NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
+                              double                         b_dt,
                               std::vector<Eigen::Vector3d>&  all_pred_armors)
 {
   // 预测和选板
 
   // 1. 预测固定时间
   AccDate_t a;
-  double    total_dt = params_.additional_dt;
+
+  double total_dt = params_.additional_dt + b_dt;
 
   predictState(total_dt, _x, a, _x_pred);
 

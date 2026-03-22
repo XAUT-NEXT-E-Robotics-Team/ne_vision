@@ -1,8 +1,10 @@
 #include "ne_vision/tracker/ne_tracker_3d.hpp"
+#include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
 #include "ne_vision/models/ne_sion_model.hpp"
 #include "ne_vision/utils/ne_code_profiler.hpp"
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
+#include "ne_vision/utils/ne_rerun_debug.hpp"
 
 #define IS_SION_MODEL(aim_str)                                                 \
   (aim_str == "1" || aim_str == "2" || aim_str == "3" || aim_str == "4" ||     \
@@ -112,9 +114,33 @@ DO_NORMAL_TRACKING:
       // 如果没有识别到，上面给出的armors_3d_i_是空的，模型会自动处理
       sion.Update(armors_3d_i_);
 
+      Com_ptr_->muzzle_v = imu_data_i_.muzzle_speed;
+      Com_ptr_->ball_type = "small";
+      YUKINO::BallisticModel bm;
+      bm.judgeK1();
+
+      auto   state = sion.GetState();
+      double avg_z = (state.z1 + state.z2) / 2.0;
+      double dis_center =
+          Eigen::Vector3d(state.p.x(), state.p.y(), avg_z).norm();
+      double pitch_tmp = std::atan2(state.p.norm(), avg_z);
+
       auto aim_point =
-          sion.PredictAndChoose(imu_data_i_, aim_traj_o.all_armors);
+          sion.PredictAndChoose(imu_data_i_, bm_dt, aim_traj_o.all_armors);
       aim_traj_o.traj_points.push_back(aim_point);
+
+      double aim_yaw = std::atan2(aim_point.y(), aim_point.x());
+      double aim_z = aim_point.z();
+      double aim_pitch = std::atan2(aim_point.norm(), aim_z);
+
+      aim_pitch = bm.Cal_TargetposPitch(dis_center, aim_z, 0.00f, 0.00f);
+      aim_traj_o.aim_yaw = aim_yaw;
+      aim_traj_o.aim_pitch = aim_pitch;
+
+      // nv_rec_g().log("aim_yaw", rerun::Scalars(aim_yaw));
+      // nv_rec_g().log("aim_pitch", rerun::Scalars(aim_pitch));
+
+      // 弹道补偿
     }
     catch (std::bad_variant_access&)
     {
