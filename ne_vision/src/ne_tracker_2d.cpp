@@ -175,7 +175,7 @@ NeTracker2D::NeTracker2D(const std::string&       name,
 
 void NeTracker2D::Tarck2D()
 {
-
+  NV_PROFILE_BLOCK(GetName());
   // std::chrono::steady_clock::time_point now =
   // std::chrono::steady_clock::now();
   if (!armors_2d_c_sPtr_->Receive(armors_2d_))

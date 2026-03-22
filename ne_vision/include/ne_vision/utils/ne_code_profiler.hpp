@@ -61,6 +61,8 @@ public:
 
     inline double GetCurrentS() const { return current_time.count(); }
 
+    inline double GetCurrentPeriodS() const { return current_period.count(); }
+
     // 运行时间分析
     std::chrono::duration<double> total_time{0};
     size_t                        count{0};

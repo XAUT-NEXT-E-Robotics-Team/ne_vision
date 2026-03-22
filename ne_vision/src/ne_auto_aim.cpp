@@ -38,6 +38,7 @@
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_param.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
+#include "ne_vision/utils/ne_code_profiler.hpp"
 #include <cfloat>
 #include <chrono>
 #include <memory>
@@ -156,6 +157,66 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
     return;
   }
   frame = msg.frame;
+
+  if (frame.empty())
+    return;
+
+  // 计算各个模块计算耗时和频率
+  double detect_ms = NV_PROFILE_INSTANCE(task_objs_.detector_sPtr_->GetName())
+                         ->GetResult()
+                         .GetCurrentS() *
+                     1000.0;
+  double detect_hz =
+      1.0 / (NV_PROFILE_INSTANCE(task_objs_.detector_sPtr_->GetName())
+                 ->GetResult()
+                 .GetCurrentPeriodS());
+
+  double tracker2d_ms =
+      NV_PROFILE_INSTANCE(task_objs_.tracker_2d_sPtr_->GetName())
+          ->GetResult()
+          .GetCurrentS() *
+      1000.0;
+  double tracker2d_hz =
+      1.0 / (NV_PROFILE_INSTANCE(task_objs_.tracker_2d_sPtr_->GetName())
+                 ->GetResult()
+                 .GetCurrentPeriodS());
+
+  double tracker3d_ms =
+      NV_PROFILE_INSTANCE(task_objs_.tracker_3d_sPtr_->GetName())
+          ->GetResult()
+          .GetCurrentS() *
+      1000.0;
+
+  double tracker3d_hz =
+      1.0 / (NV_PROFILE_INSTANCE(task_objs_.tracker_3d_sPtr_->GetName())
+                 ->GetResult()
+                 .GetCurrentPeriodS());
+
+  cv::putText(frame,
+              fmt::format("Detect: {:.1f} ms, {:.1f} Hz", detect_ms, detect_hz),
+              cv::Point(10, 30),
+              cv::FONT_HERSHEY_SIMPLEX,
+              0.7,
+              cv::Scalar(0, 255, 0),
+              2);
+  cv::putText(frame,
+              fmt::format("Tracker 2D: {:.1f} ms, {:.1f} Hz",
+                          tracker2d_ms,
+                          tracker2d_hz),
+              cv::Point(10, 60),
+              cv::FONT_HERSHEY_SIMPLEX,
+              0.7,
+              cv::Scalar(0, 255, 0),
+              2);
+  cv::putText(frame,
+              fmt::format("Tracker 3D: {:.1f} ms, {:.1f} Hz",
+                          tracker3d_ms,
+                          tracker3d_hz),
+              cv::Point(10, 90),
+              cv::FONT_HERSHEY_SIMPLEX,
+              0.7,
+              cv::Scalar(0, 255, 0),
+              2);
 }
 
 void NeAutoAim::GetResult(double& yaw, double& pitch)

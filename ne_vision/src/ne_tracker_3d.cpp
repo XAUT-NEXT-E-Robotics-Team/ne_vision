@@ -32,7 +32,7 @@ NeTracker3D::NeTracker3D(const std::string&       name,
 
 void NeTracker3D::Track()
 {
-
+  NV_PROFILE_BLOCK(GetName());
   // NV_PROFILE_BLOCK(GetName());
 
   NeAimTraj_t aim_traj_o;

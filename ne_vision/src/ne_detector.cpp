@@ -41,6 +41,7 @@
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_param.hpp"
+#include "ne_vision/utils/ne_code_profiler.hpp"
 
 #include "ne_vision/detector/openvino_infer.hpp"
 
@@ -108,6 +109,8 @@ NeDetector::~NeDetector() {}
 
 void NeDetector::Detect()
 {
+  NV_PROFILE_BLOCK(GetName());
+
   NV_ASSERT(input_c_sPtr_ != nullptr && armors_2d_c_sPtr_ != nullptr &&
             "input_c_sPtr_ and armor_2d_c_sPtr_ cannot be nullptr");
 
