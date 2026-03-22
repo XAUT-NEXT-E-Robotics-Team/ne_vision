@@ -30,6 +30,26 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// 还是依旧的全耦合，懂的都懂
+//
+// 目标（装甲板）的轨迹
+//
+// tracker_3d >=> [ne_aim_tra] >=> planner
 
 #pragma once
+
+#include "Eigen/src/Core/Matrix.h"
+
+namespace ne_vision
+{
+namespace interfaces
+{
+struct NeAimTraj_t
+{
+  std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间
+
+  double dt = 0; // 轨迹点之间的时间间隔
+
+  std::vector<Eigen::Vector3d> traj_points;
+};
+} // namespace interfaces
+} // namespace ne_vision

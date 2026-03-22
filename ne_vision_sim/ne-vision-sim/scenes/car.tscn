@@ -13,18 +13,15 @@ rotation_speed = 0.0
 
 [node name="A0" parent="." unique_id=1534457744 instance=ExtResource("1_c35m8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.2, 0, 0)
-visible = false
 
 [node name="A2" parent="." unique_id=497492681 instance=ExtResource("1_c35m8")]
 transform = Transform3D(-0.99999994, 0, -8.742277e-08, 0, 0.9999999, 0, 8.742277e-08, 0, -0.9999999, -0.2, 0, 0)
 
 [node name="A1" parent="." unique_id=277364345 instance=ExtResource("1_c35m8")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, -0.3)
-visible = false
 
 [node name="A3" parent="." unique_id=1213746420 instance=ExtResource("1_c35m8")]
 transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 0, 0.3)
-visible = false
 
 [node name="Center" type="Node3D" parent="." unique_id=127732958]
 

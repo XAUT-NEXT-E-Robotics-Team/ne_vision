@@ -4,7 +4,13 @@ auto_aim:
   tracker_2d:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2
-    detector_variance: 4.0
+    detector_variance: 3.0
+  tracker_3d:
+    sion_model:
+      var_a: 1.0
+      var_beta: 10.0
+      var_z: 0.01
+      var_R: 0.000000001
 
 hardware:
   camera:

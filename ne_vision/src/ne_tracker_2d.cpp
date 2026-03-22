@@ -233,7 +233,12 @@ void NeTracker2D::Tarck2D()
   trackAndChoose();
 
   if (!current_aim_.IsDetected())
+  {
+    // 虽然之前应该是能确保清零了，这一再做一下防呆
+    // 清零代表没识别到，用来给后续做处理的
+    current_aim_.aim_armors.clear();
     goto send; // 只要本次没识别到，就退出了
+  }
 
   // 能到这里，armors_2d不可能是空的
   solvePnP();
@@ -261,11 +266,14 @@ void NeTracker2D::Tarck2D()
     armor_3d.debug = each.debug_info;
     armor_3d.q = each.imu_to_armor.q;
     armor_3d.t = each.imu_to_armor.t;
-    armor_3d.yaw = each.imu_to_armor.yaw;
+    // 坐标系变换
+    armor_3d.yaw = each.imu_to_armor.yaw * Sophus::SO2d::exp(M_PI);
+    armor_3d.cov = each.imu_to_armor.cov;
     armors_3d_.armors.push_back(armor_3d);
   }
+  armors_3d_.aim_id = current_aim_.aim_id;
 
-  // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对
+  // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对，以及后续各类时间戳
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
   armors_3d_c_sPtr_->Transmit(armors_3d_);
@@ -283,6 +291,9 @@ void NeTracker2D::trackAndChoose()
   // 跟踪当前目标，无数据一定时间后认为丢失。用来防止出现一两次误识别就导致目标变化这种抽象的事情。
   // 2. 选板，优先级：当前目标 > 也许吧 >
   //    2D上最近的（巅峰陈雪送的吐槽给你解决了哦）
+
+  // 无论如何先清零
+  current_aim_.aim_armors.clear();
 
   if (armors_2d_.armors.empty())
   {
@@ -348,7 +359,7 @@ void NeTracker2D::trackAndChoose()
     current_aim_.lost_count = 0;
     // 更新下当前装甲板ID
     current_aim_.aim_id = armors_2d_.armors.at(0).armor_id;
-    current_aim_.aim_armors.clear();
+
     for (const auto& armor_2d : it2->second)
       current_aim_.aim_armors.push_back({.armor = armor_2d});
   }

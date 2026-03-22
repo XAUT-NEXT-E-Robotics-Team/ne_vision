@@ -30,99 +30,66 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// Auto-aiming module for ne_vision.
+// 3D跟踪器仅作为任务分配和处理接口，具体如何处理各个不同的目标，由model
+// 模块进行，见model模块相关头文件
 
 #pragma once
 
-#include "ne_vision/interfaces/ne_armors_2d.hpp"
-#include "opencv2/opencv.hpp"
+#include <memory>
 
-#include "ne_vision/utils/ne_param.hpp"
 #include "ne_vision/utils/ne_channel.hpp"
-#include "ne_vision/utils/ne_task.hpp"
 
-#include "ne_vision/interfaces/ne_frame_input.hpp"
-#include "ne_vision/interfaces/ne_debug_frame.hpp"
-#include "ne_vision/interfaces/ne_armors_2d.hpp"
-#include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
+#include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/interfaces/ne_aim_traj.hpp"
 
-#include "ne_vision/detector/ne_detector.hpp"
-#include "ne_vision/tracker/ne_tracker_2d.hpp"
-#include "ne_vision/tracker/ne_tracker_3d.hpp"
-#include "ne_vision/debug/ne_vision_visualization.hpp"
-#include <memory>
+#include "ne_vision/models/ne_sion_model.hpp"
 
 namespace ne_vision
 {
 
-class NeAutoAim final
+class NeTracker3D final
 {
-public:
-  explicit NeAutoAim();
-  ~NeAutoAim();
-
-  void UpdateFrame(const cv::Mat& frame, char our_color);
-  void UpdateImu(const Eigen::Vector3d&    acc,
-                 const Eigen::Vector3d&    gyro,
-                 const Eigen::Quaterniond& quat,
-                 double                    delay_test_s = 0.0);
-
-  inline void UpdateTestImu(double delay_s)
-  {
-    Eigen::Vector3d    acc = Eigen::Vector3d::Zero();
-    Eigen::Vector3d    gyro = Eigen::Vector3d::Zero();
-    Eigen::Quaterniond quat = Eigen::Quaterniond::Identity();
-
-    UpdateImu(acc, gyro, quat, delay_s);
-  }
-
-  inline bool IsRunning() const { return is_running_; }
-  void        Start(std::string config_file_path);
-  void        AutoAim();
-
-  void DebugFrame(cv::Mat& frame);
-
-  void Stop();
-
-  const NeParam& Params();
 
 private:
-  void setupParameters();
-  void setupChannels();
-  void setupTasks();
+  using NeArmors3D_t = interfaces::NeArmors3D_t;
+  using NeImuData_t = interfaces::NeImuData_t;
+  using NeAimTraj_t = interfaces::NeAimTraj_t;
+  using NeArmors3DCSPtr_t = std::shared_ptr<NeChannel<NeArmors3D_t>>;
+  using NeImuDataCSPtr_t = std::shared_ptr<NeChannel<NeImuData_t>>;
+  using NeAimTrajCSPtr_t = std::shared_ptr<NeChannel<NeAimTraj_t>>;
+
+public:
+  explicit NeTracker3D(const std::string&       name,
+                       const NeArmors3DCSPtr_t& armors_3d_c_sPtr,
+                       const NeImuDataCSPtr_t&  imu_data_c_sPtr,
+                       const NeAimTrajCSPtr_t&  aim_traj_c_sPtr);
+  ~NeTracker3D() = default;
+
+  void Track();
+
+  inline std::string GetName() const { return name_; }
+
+private:
+  std::string name_;
+
+  NeArmors3DCSPtr_t armors_3d_c_sPtr_;
+  NeImuDataCSPtr_t  imu_data_c_sPtr_;
+  NeAimTrajCSPtr_t  aim_traj_c_sPtr_;
+
+  std::string current_tracking_aim_ = "NULL";
+
+  // 上次接收的装甲板时间戳，用于判断当前收到的装甲板是否是新的
+  // 如果不是最新的，进入仅预测模式
+  std::chrono::steady_clock::time_point last_cap_stamp_;
+
+  // 这是一个保存所有模型的联合体，如果有新的模型，要放进去
+  std::variant<std::monostate, sion::NeSionModel> model_;
 
   struct
   {
-    std::shared_ptr<NeChannel<interfaces::NeFrameInput_t>> frame_input_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeArmors2D_t>>   armor2d_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeImuData_t>>    imu_data_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeArmors3D_t>>   armor3d_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeAimTraj_t>>    aim_traj_sPtr_;
-
-    std::shared_ptr<NeChannel<interfaces::NeDebugFrame_t>> debug_frame_sPtr_;
-  } channels_;
-
-  struct
-  {
-    std::unique_ptr<NeTask> detector_uPtr_;
-    std::unique_ptr<NeTask> tracker_2d_uPtr_;
-    std::unique_ptr<NeTask> tracker_3d_uPtr_;
-
-    std::unique_ptr<NeTask> debug_visualization_uPtr_;
-  } tasks_;
-
-  struct
-  {
-    std::shared_ptr<NeDetector>  detector_sPtr_;
-    std::shared_ptr<NeTracker2D> tracker_2d_sPtr_;
-    std::shared_ptr<NeTracker3D> tracker_3d_sPtr_;
-
-    std::shared_ptr<NeVisionVisualization> debug_visualization_sPtr_;
-  } task_objs_;
-
-  bool is_running_ = false;
+    double lose_time = 3.0; // 认为丢失的时间阈值，单位秒 TODO: 写到参数里边去
+  } param_;
 };
 
 } // namespace ne_vision

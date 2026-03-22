@@ -117,6 +117,7 @@ void NeAutoAim::Start(std::string config_file_path)
   setupTasks();
   tasks_.detector_uPtr_->Start();
   tasks_.tracker_2d_uPtr_->Start();
+  tasks_.tracker_3d_uPtr_->Start();
   tasks_.debug_visualization_uPtr_->Start();
   is_running_ = true;
 }
@@ -159,6 +160,9 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
 void NeAutoAim::Stop()
 {
   tasks_.detector_uPtr_->Stop();
+  tasks_.tracker_2d_uPtr_->Stop();
+  tasks_.tracker_3d_uPtr_->Stop();
+  tasks_.debug_visualization_uPtr_->Stop();
   is_running_ = false;
 }
 
@@ -180,6 +184,9 @@ void NeAutoAim::setupChannels()
   channels_.armor3d_sPtr_ =
       std::make_shared<NeChannel<interfaces::NeArmors3D_t>>(
           "armor3d", NeChannelType_e::KEEP_ON_READ, 1);
+  channels_.aim_traj_sPtr_ =
+      std::make_shared<NeChannel<interfaces::NeAimTraj_t>>(
+          "aim_traj", NeChannelType_e::KEEP_ON_READ, 1);
 
   channels_.debug_frame_sPtr_ =
       std::make_shared<NeChannel<interfaces::NeDebugFrame_t>>(
@@ -197,6 +204,30 @@ void NeAutoAim::setupTasks()
                                task_objs_.detector_sPtr_.get(),
                                &NeDetector::Detect);
 
+  task_objs_.tracker_2d_sPtr_ =
+      std::make_shared<NeTracker2D>("tracker_2D",
+                                    channels_.armor2d_sPtr_,
+                                    channels_.imu_data_sPtr_,
+                                    channels_.armor3d_sPtr_);
+  tasks_.tracker_2d_uPtr_ =
+      std::make_unique<NeTask>(task_objs_.tracker_2d_sPtr_->GetName(),
+                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
+                               channels_.armor2d_sPtr_,
+                               task_objs_.tracker_2d_sPtr_.get(),
+                               &NeTracker2D::Tarck2D);
+
+  task_objs_.tracker_3d_sPtr_ =
+      std::make_shared<NeTracker3D>("tracker_3D",
+                                    channels_.armor3d_sPtr_,
+                                    channels_.imu_data_sPtr_,
+                                    channels_.aim_traj_sPtr_);
+  tasks_.tracker_3d_uPtr_ =
+      std::make_unique<NeTask>(task_objs_.tracker_3d_sPtr_->GetName(),
+                               NeTaskType_e::WAIT_FOR_INTERVAL,
+                               10ms,
+                               task_objs_.tracker_3d_sPtr_.get(),
+                               &NeTracker3D::Track);
+
   task_objs_.debug_visualization_sPtr_ =
       std::make_shared<NeVisionVisualization>("debug_visualization",
                                               channels_.frame_input_sPtr_,
@@ -211,18 +242,6 @@ void NeAutoAim::setupTasks()
                                channels_.frame_input_sPtr_,
                                task_objs_.debug_visualization_sPtr_.get(),
                                &NeVisionVisualization::Draw);
-
-  task_objs_.tracker_2d_sPtr_ =
-      std::make_shared<NeTracker2D>("tracker_2D",
-                                    channels_.armor2d_sPtr_,
-                                    channels_.imu_data_sPtr_,
-                                    channels_.armor3d_sPtr_);
-  tasks_.tracker_2d_uPtr_ =
-      std::make_unique<NeTask>(task_objs_.tracker_2d_sPtr_->GetName(),
-                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               channels_.armor2d_sPtr_,
-                               task_objs_.tracker_2d_sPtr_.get(),
-                               &NeTracker2D::Tarck2D);
 }
 
 } // namespace ne_vision

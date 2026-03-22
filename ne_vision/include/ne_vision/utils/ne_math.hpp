@@ -91,10 +91,7 @@ inline double DegToRad(double deg) { return deg * M_PI / 180.0; }
 
 inline double RadToDeg(double rad) { return rad * 180.0 / M_PI; }
 
-inline double WrapToPi(double rad)
-{
-  return std::fmod(rad + M_PI, 2 * M_PI) - M_PI;
-}
+inline double WrapToPi(double rad) { return std::remainder(rad, 2.0 * M_PI); }
 
 inline Eigen::Quaterniond
 EulerToQuaternion(double roll, double pitch, double yaw)

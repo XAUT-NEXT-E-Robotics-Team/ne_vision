@@ -117,6 +117,7 @@ void NeTask::Start()
         cv_pair_sPtr_->first.wait_until(
             lock, next_tick, [&stoken] { return stoken.stop_requested(); });
       }
+      NV_INFO("task stopped.");
     });
   }
   else
