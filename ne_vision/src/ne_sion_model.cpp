@@ -273,6 +273,11 @@ void NeSionModel::predictState(double         dt,
   // R1和R2保持不变
   x_pred.R1 = x.R1;
   x_pred.R2 = x.R2;
+
+  if (x_pred.R1 <= 0)
+    x_pred.R1 = 0.3;
+  if (x_pred.R2 <= 0)
+    x_pred.R2 = 0.3;
 }
 
 // 计算过程噪声协方差矩阵Q

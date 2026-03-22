@@ -32,6 +32,12 @@ float BallisticModel::Cal_OssneHeight(float x, float cal_pitch)
   // std::cout<<OssneHeight <<std::endl;
   return OssneHeight;
 }
+float BallisticModel::get_ft(float x, float cal_pitch)
+{
+  Com_ptr_->ft = (float)(exp(x * Com_ptr_->K1) - 1) /
+                 (Com_ptr_->K1 * cos(cal_pitch) * Com_ptr_->muzzle_v);
+  return Com_ptr_->ft;
+}
 float BallisticModel::Cal_TargetposPitch(float x,
                                          float OssneHeight,
                                          float x_offset,
@@ -58,11 +64,11 @@ float BallisticModel::Cal_TargetposPitch(float x,
     {
       break;
     }
-    printf("x = %f,原始pitch = %f,pitch = %f,迭代次数 = %d\n",
-           x,
-           -atan2(OssneHeight, x) * 180 / 3.14,
-           -(cal_pitch * 180 / 3.14),
-           count);
+    // printf("x = %f,原始pitch = %f,pitch = %f,迭代次数 = %d\n",
+    //        x,
+    //        -atan2(OssneHeight, x) * 180 / 3.14,
+    //        -(cal_pitch * 180 / 3.14),
+    //        count);
   }
   return -cal_pitch;
 }

@@ -14,6 +14,7 @@ public:
   float   Cal_OssneHeight(float x,
                           float cal_pitch); // x 为击打距离，即为aim_distance
   Com_ps* judgeK1();
+  float   get_ft(float x, float cal_pitch);
   // 需要注意的一点是弹丸并不是从云台直接的发射出去的，需要加上从云台到枪口的偏移（x方向为水平方向，Ossne为垂直方向）
   float Cal_TargetposPitch(float x,
                            float OssneHeight,

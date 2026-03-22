@@ -107,6 +107,8 @@ DO_NORMAL_TRACKING:
   {
     try
     {
+      auto start = std::chrono::steady_clock::now();
+
       auto& sion = std::get<sion::NeSionModel>(model_);
 
       sion.Predict();
@@ -123,7 +125,14 @@ DO_NORMAL_TRACKING:
       double avg_z = (state.z1 + state.z2) / 2.0;
       double dis_center =
           Eigen::Vector3d(state.p.x(), state.p.y(), avg_z).norm();
-      double pitch_tmp = std::atan2(state.p.norm(), avg_z);
+      double pitch_tmp = std::atan2(avg_z, state.p.norm());
+
+      double bm_dt = bm.get_ft(dis_center, pitch_tmp);
+
+      NV_DEBUG("dis_center: {}, pitch_tmp: {}, bm_dt: {}",
+               dis_center,
+               pitch_tmp,
+               bm_dt);
 
       auto aim_point =
           sion.PredictAndChoose(imu_data_i_, bm_dt, aim_traj_o.all_armors);
@@ -131,16 +140,19 @@ DO_NORMAL_TRACKING:
 
       double aim_yaw = std::atan2(aim_point.y(), aim_point.x());
       double aim_z = aim_point.z();
-      double aim_pitch = std::atan2(aim_point.norm(), aim_z);
+      double aim_pitch = std::atan2(aim_z, aim_point.norm());
 
       aim_pitch = bm.Cal_TargetposPitch(dis_center, aim_z, 0.00f, 0.00f);
       aim_traj_o.aim_yaw = aim_yaw;
       aim_traj_o.aim_pitch = aim_pitch;
+      // 计算时间
+      double track_time = std::chrono::duration<double>(
+                              std::chrono::steady_clock::now() - start)
+                              .count();
+      // NV_DEBUG("Tracker3D time: {} ms", track_time * 1000);
 
       // nv_rec_g().log("aim_yaw", rerun::Scalars(aim_yaw));
       // nv_rec_g().log("aim_pitch", rerun::Scalars(aim_pitch));
-
-      // 弹道补偿
     }
     catch (std::bad_variant_access&)
     {
