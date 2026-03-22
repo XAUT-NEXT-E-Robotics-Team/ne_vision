@@ -37,6 +37,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "Eigen/src/Core/Matrix.h"
 
 namespace ne_vision
@@ -50,6 +52,10 @@ struct NeAimTraj_t
   double dt = 0; // 轨迹点之间的时间间隔
 
   std::vector<Eigen::Vector3d> traj_points;
+  std::vector<Eigen::Vector3d> all_armors;
+
+  double aim_yaw = 0;
+  double aim_pitch = 0;
 };
 } // namespace interfaces
 } // namespace ne_vision

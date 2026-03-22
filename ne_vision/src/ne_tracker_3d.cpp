@@ -33,6 +33,8 @@ void NeTracker3D::Track()
 
   // NV_PROFILE_BLOCK(GetName());
 
+  NeAimTraj_t aim_traj_o;
+
   NeArmors3D_t armors_3d_i_;
   NeImuData_t  imu_data_i_;
 
@@ -70,7 +72,7 @@ void NeTracker3D::Track()
   {
     current_tracking_aim_ = "NULL";
     model_ = std::monostate(); // 清空模型
-    return;
+    goto SEND;
   }
 
   // 2.如果还没有跟丢，在没识别到，或者识别到的还是当前目标，就继续跟踪
@@ -109,12 +111,19 @@ DO_NORMAL_TRACKING:
 
       // 如果没有识别到，上面给出的armors_3d_i_是空的，模型会自动处理
       sion.Update(armors_3d_i_);
+
+      auto aim_point =
+          sion.PredictAndChoose(imu_data_i_, aim_traj_o.all_armors);
+      aim_traj_o.traj_points.push_back(aim_point);
     }
     catch (std::bad_variant_access&)
     {
       NV_ASSERT(0 && "Model type is not same as aim model type!");
     }
   }
+SEND:
+  aim_traj_o.cap_stamp = armors_3d_i_.cap_stamp;
+  aim_traj_c_sPtr_->Transmit(aim_traj_o);
 }
 
 } // namespace ne_vision

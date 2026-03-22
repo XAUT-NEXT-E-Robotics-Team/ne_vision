@@ -11,6 +11,7 @@ auto_aim:
       var_beta: 10
       var_z: 0.01
       var_R: 0.000000001
+      additional_dt: 0.02
 
 hardware:
   camera:

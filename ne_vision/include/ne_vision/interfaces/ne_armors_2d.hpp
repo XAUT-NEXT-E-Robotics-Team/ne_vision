@@ -98,6 +98,7 @@ struct NeArmors2D_t
     Eigen::Vector2d center;
   };
 
+  char                 our_color; // 这里是我们的颜色 就 R B
   std::vector<Armor_t> armors;
 };
 

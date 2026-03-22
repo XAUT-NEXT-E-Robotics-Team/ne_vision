@@ -34,6 +34,7 @@
 
 #include "ne_vision/debug/ne_vision_visualization.hpp"
 
+#include "Eigen/Dense"
 #include "opencv2/opencv.hpp"
 
 #include "ne_vision/utils/ne_debug.hpp"
@@ -71,6 +72,8 @@ NeVisionVisualization::NeVisionVisualization(
         NV_PARAM["hardware"]["camera"]["camera_matrix"]["cy"].as<double>();
     pro_param_.camera_matrix_ =
         (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
+    pro_param_.camera_matrix_eigen_ =
+        (Eigen::Matrix3d() << fx, 0, cx, 0, fy, cy, 0, 0, 1).finished();
 
     const double k1 =
         NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k1"].as<double>();
@@ -83,6 +86,8 @@ NeVisionVisualization::NeVisionVisualization(
     const double k3 =
         NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k3"].as<double>();
     pro_param_.dist_coeffs_ = (cv::Mat_<double>(1, 5) << k1, k2, p1, p2, k3);
+    pro_param_.dist_coeffs_eigen_ =
+        (Eigen::Matrix<double, 5, 1>() << k1, k2, p1, p2, k3).finished();
   }
   catch (const std::exception& e)
   {
@@ -101,6 +106,7 @@ void NeVisionVisualization::Draw()
 
     drawArmors2D(frame);
     drawArmors3D(frame);
+    drawTrackerResult(frame);
 
     debug_frame.frame = frame;
     channels_.debug_frame_c_sPtr->Transmit(debug_frame);
@@ -149,6 +155,19 @@ void NeVisionVisualization::receiveAll()
       while (vis_queue_.armors_3ds.size() > VIS_QUEUE_MAX_SIZE)
       {
         vis_queue_.armors_3ds.pop_front();
+      }
+    }
+  }
+
+  if (channels_.aim_traj_c_sPtr)
+  {
+    NeAimTraj_t aim_traj;
+    if (channels_.aim_traj_c_sPtr->Receive(aim_traj))
+    {
+      vis_queue_.aim_trajs.push_back(aim_traj);
+      while (vis_queue_.aim_trajs.size() > VIS_QUEUE_MAX_SIZE)
+      {
+        vis_queue_.aim_trajs.pop_front();
       }
     }
   }
@@ -208,6 +227,29 @@ bool NeVisionVisualization::matchAll()
       vis_pack_.armors_3d = vis_queue_.armors_3ds.front();
     }
 
+    if (channels_.aim_traj_c_sPtr)
+    {
+      if (vis_queue_.aim_trajs.empty())
+      {
+        return false;
+      }
+      while (!vis_queue_.aim_trajs.empty() &&
+             vis_queue_.aim_trajs.front().cap_stamp < vis_pack_.input.cap_stamp)
+      {
+        vis_queue_.aim_trajs.pop_front();
+      }
+      if (vis_queue_.aim_trajs.empty())
+      {
+        return false;
+      }
+      if (vis_queue_.aim_trajs.front().cap_stamp > vis_pack_.input.cap_stamp)
+      {
+        vis_queue_.frame_inputs.pop_front();
+        continue;
+      }
+      vis_pack_.aim_traj = vis_queue_.aim_trajs.front();
+    }
+
     vis_queue_.frame_inputs.pop_front();
     if (channels_.armors2d_c_sPtr)
     {
@@ -217,12 +259,46 @@ bool NeVisionVisualization::matchAll()
     {
       vis_queue_.armors_3ds.pop_front();
     }
+    if (channels_.aim_traj_c_sPtr)
+    {
+      vis_queue_.aim_trajs.pop_front();
+    }
 
     vis_pack_.is_matched = true;
 
     return true;
   }
   return false;
+}
+
+cv::Point2d
+NeVisionVisualization::projectToImagePlane(const Eigen::Vector3d& point_3d)
+{
+  cv::Point2d point_2d = {-1, -1};
+  if (channels_.armors2d_c_sPtr == nullptr)
+  {
+    NV_WARN("Armors2D channel is not set, cannot project to image plane.");
+    return point_2d;
+  }
+
+  if (vis_pack_.armors_3d.armors.empty())
+  {
+    // 这里应该是不能正常重投影的，但是有可能被多次调用，免得日志太多
+    return point_2d;
+  }
+  auto q_c_i = vis_pack_.armors_3d.armors.at(0).debug.camera_to_imu.q;
+  auto t_c_i = vis_pack_.armors_3d.armors.at(0).debug.camera_to_imu.t;
+
+  // 计算到相机的旋转和平移
+  auto& q_c_p = q_c_i;
+  auto  t_c_p = q_c_i * point_3d + t_c_i;
+
+  // 进行投影
+  auto P = (pro_param_.camera_matrix_eigen_ * t_c_p) / t_c_p.z();
+
+  cv::Point2d projected_point(P.x(), P.y());
+
+  return projected_point;
 }
 
 void NeVisionVisualization::drawArmors2D(cv::Mat& frame)
@@ -276,4 +352,33 @@ void NeVisionVisualization::drawArmors3D(cv::Mat& frame)
     }
   }
 }
+
+void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
+{
+  if (channels_.aim_traj_c_sPtr == nullptr || !vis_pack_.is_matched)
+  {
+    return;
+  }
+
+  // NV_DEBUG("{}", vis_pack_.aim_traj.traj_points.size());
+  for (const auto& traj_pt : vis_pack_.aim_traj.traj_points)
+  {
+    cv::Point2d projected_pt = projectToImagePlane(traj_pt);
+    // NV_DEBUG("{} {}", projected_pt.x, projected_pt.y);
+    if (projected_pt.x >= 0 && projected_pt.y >= 0)
+    {
+      cv::circle(frame, projected_pt, 10, cv::Scalar(255, 0, 0), -1);
+    }
+  }
+
+  for (const auto& each : vis_pack_.aim_traj.all_armors)
+  {
+    cv::Point2d projected_pt = projectToImagePlane(each);
+    if (projected_pt.x >= 0 && projected_pt.y >= 0)
+    {
+      cv::circle(frame, projected_pt, 3, cv::Scalar(0, 255, 255), -1);
+    }
+  }
+}
+
 } // namespace ne_vision

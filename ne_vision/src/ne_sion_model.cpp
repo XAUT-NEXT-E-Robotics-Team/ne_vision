@@ -61,6 +61,9 @@ NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
   params_.var_z = param["var_z"].as<double>();       // 高度噪声方差
   params_.var_R = param["var_R"].as<double>();       // 半径噪声方差
 
+  params_.additional_dt =
+      param["additional_dt"].as<double>(); // 预测时额外增加的时间，单位秒
+
   // 初始化协方差
   _eP = ErrorStateMat_t::Identity() * 1e-3;
 
@@ -193,6 +196,52 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
   }
 }
 
+Eigen::Vector3d
+NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
+                              std::vector<Eigen::Vector3d>&  all_pred_armors)
+{
+  // 预测和选板
+
+  // 1. 预测固定时间
+  AccDate_t a;
+  double    total_dt = params_.additional_dt;
+
+  predictState(total_dt, _x, a, _x_pred);
+
+  // 2. 选板
+  //    我们选择最正对云台的一块装甲板
+
+  double min_yaw_diff = std::numeric_limits<double>::max();
+
+  Eigen::Vector3d aim_point = {_x_pred.p.x(), _x_pred.p.y(), 0};
+
+  all_pred_armors.clear();
+  for (int id = 0; id < 4; ++id)
+  {
+    Measurement_t z_pred;
+    h(id, _x_pred, z_pred);
+
+    double yaw_a = z_pred(MEASURE_YAW_IDX);
+    double yaw_b = math::QuaternionToYaw(imu_data.quat);
+
+    double yaw_diff = math::WrapToPi(yaw_a - yaw_b);
+
+    if (yaw_diff < min_yaw_diff)
+    {
+      min_yaw_diff = yaw_diff;
+      aim_point.x() = z_pred(MEASURE_X_IDX);
+      aim_point.y() = z_pred(MEASURE_Y_IDX);
+      aim_point.z() = z_pred(MEASURE_Z_IDX);
+    }
+    all_pred_armors.emplace_back(
+        z_pred(MEASURE_X_IDX), z_pred(MEASURE_Y_IDX), z_pred(MEASURE_Z_IDX));
+  }
+
+  // NV_DEBUG("{} {} {}", aim_point.x(), aim_point.y(), aim_point.z());
+
+  return aim_point;
+}
+
 // 名义状态预测函数
 void NeSionModel::predictState(double         dt,
                                NeSionState_t  x,
@@ -305,7 +354,7 @@ void NeSionModel::h(const NePeriodicNumber_t id,
   const double x_R = (id % 2 == 0) ? x.R1 : x.R2; // 根据id选择R1或R2
 
   // 该ID的对应装甲板是机体x轴逆时针转过多少度（相对于机体坐标系）
-  const double offset_yaw = id * M_PI / 2.0;
+  const double offset_yaw = -id * M_PI / 2.0;
 
   // 2. 根据状态计算观测值
   z(MEASURE_X_IDX) = x.p.x() + x_R * std::cos(x.yaw + offset_yaw);
@@ -321,7 +370,7 @@ void NeSionModel::computeH(const NePeriodicNumber_t id,
   H = HJac_t::Zero();
 
   // 1. 根据不同装甲板编号提取对应的参数和索引
-  double yaw_offset = id * M_PI / 2.0;         // 根据ID计算yaw偏移
+  double yaw_offset = -id * M_PI / 2.0;        // 根据ID计算yaw偏移
   int r_idx = (id % 2 == 0) ? R1_IDX : R2_IDX; // 根据ID选择R1或R2的索引
   int z_idx = (id % 2 == 0) ? Z1_IDX : Z2_IDX; // 根据ID选择z1或z2的索引
   double R = (id % 2 == 0) ? x.R1 : x.R2;      // 根据ID选择R1或R2的值
@@ -390,8 +439,8 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
   {
     double distance = compute_mahalanobis_distance(id);
     // TODO: 这里加入阈值判断
-    if (distance >= 500)
-      continue;
+    // if (distance >= 500)
+    //   continue;
     if (distance < min_mahalanobis_distance)
     {
       min_mahalanobis_distance = distance;
@@ -406,13 +455,13 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
 
   if (best_id == -1)
   {
-    NV_INFO("NOOOO {}", min_mahalanobis_distance);
+    // NV_INFO("NOOOO {}", min_mahalanobis_distance);
     return false;
   }
 
   matched_id = best_id;
 
-  NV_INFO("ID:{}", matched_id);
+  // NV_INFO("ID:{}", matched_id);
 
   return true;
 }

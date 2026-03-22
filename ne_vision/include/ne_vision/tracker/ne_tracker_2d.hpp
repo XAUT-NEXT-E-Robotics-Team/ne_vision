@@ -64,151 +64,6 @@
 namespace ne_vision
 {
 
-// namespace detail
-// {
-
-// // 用来ceres优化
-// struct ArmorReprojectionError
-// {
-//   // 修改为指针引用外部数据，避免拷贝，支持动态更新
-//   ArmorReprojectionError(const std::vector<Eigen::Vector2d>* img_points,
-//                          const std::vector<Eigen::Vector3d>* obj_points,
-//                          const Eigen::Quaterniond*           q_c_i,
-//                          const Eigen::Matrix3d*              camera_matrix,
-//                          const Eigen::Vector3d*              t,
-//                          const double*                       fixed_pitch_rad)
-//       : img_points_(img_points), obj_points_(obj_points), q_c_i_(q_c_i),
-//         camera_matrix_(camera_matrix), t_(t),
-//         fixed_pitch_rad_(fixed_pitch_rad)
-//   {
-//   }
-
-//   template <typename T>
-//   bool operator()(const T* const yaw_ptr, T* residuals) const
-//   {
-//     // 1. 将输入参数转换为Eigen类型
-//     T yaw = yaw_ptr[0];
-
-//     // 2. 将成员变量转换为类型T
-//     Eigen::Quaternion<T>   q_c_i_T = q_c_i_->cast<T>();
-//     Eigen::Matrix<T, 3, 3> K = camera_matrix_->cast<T>();
-//     Eigen::Matrix<T, 3, 1> t = t_->cast<T>();
-
-//     // 3. 构造从Armor到IMU的旋转：先绕Z轴旋转yaw，再绕Y轴旋转固定的pitch
-//     Eigen::Quaternion<T> q_yaw(
-//         Eigen::AngleAxis<T>(yaw, Eigen::Matrix<T, 3, 1>::UnitZ()));
-//     Eigen::Quaternion<T> q_pitch(Eigen::AngleAxis<T>(
-//         T(*fixed_pitch_rad_), Eigen::Matrix<T, 3, 1>::UnitY()));
-//     Eigen::Quaternion<T> q_i_a = q_yaw * q_pitch;
-
-//     // 4. 计算从Armor到Camera的旋转
-//     Eigen::Quaternion<T> q_c_a = q_c_i_T * q_i_a;
-
-//     // 5. 对每个点进行投影并计算残差
-//     //    注意顺序 (LT, LB, RB, RT)
-//     for (int i = 0; i < 4; ++i)
-//     {
-//       // 点坐标转换为类型T
-//       Eigen::Matrix<T, 3, 1> p_obj = (*obj_points_)[i].cast<T>();
-
-//       // 转换到相机坐标系 P_cam = q_c_a * P_obj + t
-//       Eigen::Matrix<T, 3, 1> p_cam = q_c_a * p_obj + t;
-
-//       // 投影到图像坐标系: P_pix = K * P_cam / Z
-//       Eigen::Matrix<T, 3, 1> p_pix = K * p_cam / p_cam.z();
-
-//       // 计算重投影误差 (理论投影坐标 - 实际观测坐标)
-//       // 将 x 和 y 误差连续存储在 residuals 数组中
-//       residuals[2 * i] = p_pix.x() - T((*img_points_)[i].x());
-//       residuals[2 * i + 1] = p_pix.y() - T((*img_points_)[i].y());
-//     }
-
-//     return true;
-//   }
-
-// private:
-//   const std::vector<Eigen::Vector2d>* img_points_;
-//   const std::vector<Eigen::Vector3d>* obj_points_;
-//   const Eigen::Quaterniond*           q_c_i_;
-//   const Eigen::Matrix3d*              camera_matrix_;
-//   const double*                       fixed_pitch_rad_;
-//   const Eigen::Vector3d*              t_;
-// };
-
-// // 更全面的优化，包括平移，用来提取雅克比
-// struct OptimizeCost
-// {
-//   OptimizeCost(const std::vector<Eigen::Vector2d>* img_points,
-//                const std::vector<Eigen::Vector3d>* obj_points,
-//                const Eigen::Quaterniond*           q_g_c,
-//                const Eigen::Quaterniond*           q_i_g,
-//                const Eigen::Matrix3d*              camera_matrix,
-//                const Eigen::Vector3d*              t_g_c,
-//                const double*                       fixed_pitch_rad)
-//       : img_points_(img_points), obj_points_(obj_points),
-//         camera_matrix_(camera_matrix), fixed_pitch_rad_(fixed_pitch_rad),
-//         q_g_c_(q_g_c), q_i_g_(q_i_g), t_g_c_(t_g_c)
-//   {
-//   }
-
-//   // 这里的yaw和t都是IMU系下的（注意）
-//   template <typename T>
-//   bool
-//   operator()(const T* const yaw_ptr, const T* const t_ptr, T* residuals)
-//   const
-//   {
-//     using Vec3_t = Eigen::Matrix<T, 3, 1>;
-//     using Vec2_t = Eigen::Matrix<T, 2, 1>;
-//     using Quat_t = Eigen::Quaternion<T>;
-//     using Mat3_t = Eigen::Matrix<T, 3, 3>;
-
-//     // 每次计算重新计算 q_c_i，虽然有一点开销，但避免了维护外部变量的复杂性
-//     // 或者可以在外部维护 q_c_i 并传入指针
-//     Quat_t q_c_i_T =
-//         (q_g_c_->conjugate() * q_i_g_->conjugate()).cast<T>(); // q_c_i
-
-//     // 类型转换
-//     T      yaw = yaw_ptr[0];
-//     Vec3_t t(t_ptr[0], t_ptr[1], t_ptr[2]);
-//     Quat_t q_g_c_T = q_g_c_->cast<T>();
-//     Mat3_t K = camera_matrix_->cast<T>();
-//     Vec3_t t_g_c_T = t_g_c_->cast<T>();
-
-//     // 根据固定角构造从Armor到IMU的旋转
-//     Quat_t q_yaw(Eigen::AngleAxis<T>(yaw, Vec3_t::UnitZ()));
-//     Quat_t q_pitch(Eigen::AngleAxis<T>(T(*fixed_pitch_rad_),
-//     Vec3_t::UnitY())); Quat_t q_i_a = q_yaw * q_pitch;
-
-//     // 计算从Armor到Camera的旋转
-//     Quat_t q_c_a = q_c_i_T * q_i_a;
-
-//     // 将t变换到相机系
-//     Vec3_t t_c = q_c_i_T * t - q_g_c_T.conjugate() * t_g_c_T;
-
-//     // 重投影并计算残差
-//     for (int i = 0; i < 4; ++i)
-//     {
-//       Vec3_t p_obj = (*obj_points_)[i].cast<T>();
-//       Vec3_t p_cam = q_c_a * p_obj + t_c;
-//       Vec3_t p_pix = K * p_cam / p_cam.z();
-
-//       residuals[2 * i] = p_pix.x() - T((*img_points_)[i].x());
-//       residuals[2 * i + 1] = p_pix.y() - T((*img_points_)[i].y());
-//     }
-//     return true;
-//   }
-
-// private:
-//   const std::vector<Eigen::Vector2d>* img_points_;
-//   const std::vector<Eigen::Vector3d>* obj_points_;
-//   const Eigen::Quaterniond*           q_i_g_;
-//   const Eigen::Quaterniond*           q_g_c_;
-//   const Eigen::Vector3d*              t_g_c_;
-//   const Eigen::Matrix3d*              camera_matrix_;
-//   const double*                       fixed_pitch_rad_;
-// };
-
-// } // namespace detail
 class NeTracker2D final
 {
 
@@ -253,7 +108,7 @@ private:
     int lost_count = 0;
 
     // n帧丢失认为目标已经丢失了
-    int lost_count_threshold = 10;
+    int lost_count_threshold = 50;
 
     std::string aim_id = "";
 
@@ -276,8 +131,6 @@ private:
   void solvePnP();
   bool matchStamp();
   void transformToImuFrame();
-  void yawOptimize();
-  void optimize();
   void lmOptimize();
   void reprojectAndFillDebugInfo();
 
@@ -355,28 +208,6 @@ private:
 
   // 识别误差表征图像点识别的不确定性，不是重投影误差
   double detector_variance_;
-
-  // struct
-  // {
-  //   ceres::Solver::Options          options;
-  //   std::unique_ptr<ceres::Problem> problem;
-  //   std::unique_ptr<ceres::Problem> problem_full;
-
-  //   // 每次优化前只需更新这些变量的值
-  //   std::vector<Eigen::Vector2d> img_points;
-  //   std::vector<Eigen::Vector3d> obj_points;
-  //   Eigen::Quaterniond           q_c_i; // for yawOptimize
-  //   Eigen::Vector3d              t_c_a; // for yawOptimize
-
-  //   // specifically for optimize()
-  //   Eigen::Quaterniond q_g_c;
-  //   Eigen::Quaterniond q_i_g;
-  //   Eigen::Vector3d    t_g_c;
-
-  //   double          fixed_pitch_rad;
-  //   double          yaw; // 待优化变量
-  //   Eigen::Vector3d t;   // 待优化变量
-  // } yaw_optimize_;
 };
 
 } // namespace ne_vision

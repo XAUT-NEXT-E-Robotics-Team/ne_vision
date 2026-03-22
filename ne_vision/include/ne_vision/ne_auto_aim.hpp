@@ -78,11 +78,18 @@ public:
     UpdateImu(acc, gyro, quat, delay_s);
   }
 
+  inline void UpdateMuzzelVelocity(double muzzel_velocity)
+  {
+    muzzel_velocity_ = muzzel_velocity;
+  }
+
   inline bool IsRunning() const { return is_running_; }
   void        Start(std::string config_file_path);
   void        AutoAim();
 
   void DebugFrame(cv::Mat& frame);
+
+  void GetResult(double& yaw, double& pitch);
 
   void Stop();
 
@@ -123,6 +130,8 @@ private:
   } task_objs_;
 
   bool is_running_ = false;
+
+  double muzzel_velocity_ = 20.0;
 };
 
 } // namespace ne_vision

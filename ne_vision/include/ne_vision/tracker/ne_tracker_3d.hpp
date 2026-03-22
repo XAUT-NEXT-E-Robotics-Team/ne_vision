@@ -88,7 +88,7 @@ private:
 
   struct
   {
-    double lose_time = 3.0; // 认为丢失的时间阈值，单位秒 TODO: 写到参数里边去
+    double lose_time = 0.5; // 认为丢失的时间阈值，单位秒 TODO: 写到参数里边去
   } param_;
 };
 

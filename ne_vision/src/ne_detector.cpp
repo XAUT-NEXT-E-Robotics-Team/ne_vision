@@ -181,10 +181,14 @@ void NeDetector::postProcess(size_t        width,
     char armor_color;
     switch (obj.color)
     {
-    case 0: armor_color = 'R'; break;
-    case 1: armor_color = 'B'; break;
+    case 1: armor_color = 'R'; break;
+    case 0: armor_color = 'B'; break;
     default: armor_color = 'N'; break; // 3
     }
+
+    char aim_color = out_color == 'R' ? 'B' : 'R';
+    if (armor_color != aim_color)
+      continue;
 
     // 构造将自动计算中心
     armors_2d.armors.emplace_back(labels_str,

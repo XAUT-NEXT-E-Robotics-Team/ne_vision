@@ -4,22 +4,16 @@ extends Node
 @onready var auto_aim_viewport = $AutoAimViewport
 @onready var gimbal = $AutoAimViewport/Gimbal
 @export var auto_aim_result_frame : TextureRect
-
+# 假设你想在 Inspector 中动态调整这个额外的 Yaw 角度（单位：度）
+@export var extra_yaw_degrees: float = 0.0
 @onready var nv_gd = NeVisionGd.new()
 var fps_label: Label
 
 # 在类变量中缓存 texture
 var _display_texture: ImageTexture
 
-var last_pos: Vector3
-var last_vel: Vector3
-var last_basis: Basis
-
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
-    last_pos = gimbal.global_position
-    last_vel = Vector3.ZERO
-    last_basis = gimbal.global_transform.basis
 
     var config_path = ProjectSettings.globalize_path("res://gdextensions/ne_vision_gd/config/config_sim.yaml")
     nv_gd.start(config_path)
@@ -51,59 +45,20 @@ func _process(delta: float) -> void:
         fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
 
 func _physics_process(delta: float) -> void:
-    var curr_pos = gimbal.global_position
-    var curr_basis = gimbal.global_transform.basis
+# 1. 获取 Godot 坐标系下的全局姿态四元数
+    var q_godot: Quaternion = gimbal.global_transform.basis.get_rotation_quaternion()
+    
+    # 2. 坐标系转换：转换为 Z 轴向上、X 轴向右的标准右手系
+    var q_target = Quaternion(
+        q_godot.x,   # 目标的 X 对应 Godot 的 X
+        -q_godot.z,  # 目标的 Y 对应 Godot 的 -Z
+        q_godot.y,   # 目标的 Z 对应 Godot 的 Y
+        q_godot.w    # W 保持不变
+    )
+    
+    # 3. 加速度和角速度保持为 0
+    var acc_target: Vector3 = Vector3.ZERO
+    var gyro_target: Vector3 = Vector3.ZERO
 
-    # 线速度和加速度
-    var curr_vel = (curr_pos - last_pos) / delta
-    var acc_world = (curr_vel - last_vel) / delta
-    # 将世界坐标系下的加速度转换到局部坐标系 (IMU 坐标系)
-    # 假设 IMU 测量的是比力 (proper acceleration) (包含重力反作用力)
-    # Godot 中的重力通常是 (0, -9.8, 0)
-    var gravity = ProjectSettings.get_setting("physics/3d/default_gravity_vector") * ProjectSettings.get_setting("physics/3d/default_gravity")
-    var acc_local = curr_basis.inverse() * (acc_world - gravity)
-
-    # 角速度
-    # 计算相对旋转
-    # Angular velocity in world frame? No, typically gyro is local frame.
-    # But let's verify math. R_cur = R_diff * R_prev.
-    # Angular velocity vector w in body frame: w = (R_prev^T * (R_cur - R_prev) / dt) approx?
-    # Or using quaternions: q_cur = q_diff * q_prev.
-    # Simplified: angular velocity vector w ~ axis * angle / delta
-    # The axis_angle calculated above is in global frame if we did curr * last.inv?
-    # Let's use a simpler approach for body frame angular velocity.
-
-    var q_curr = Quaternion(curr_basis)
-
-    # q_diff represents rotation from last to curr in global frame if q_curr * q_last.inverse()
-    # But we want angular velocity in local frame.
-    # w_local = 2 * (q_last.inverse() * (q_curr - q_last) / delta) . xyz ?
-    # Let's stick to basis for robustness against flipping quaternions
-
-    var delta_rot = last_basis.inverse() * curr_basis
-    var w_quat = delta_rot.get_rotation_quaternion()
-    var angle = w_quat.get_angle()
-    var axis = w_quat.get_axis()
-
-    # 处理角度跨越或小角度
-    if angle > PI:
-        angle -= 2 * PI
-    elif angle < -PI:
-        angle += 2 * PI
-
-    var gyro_local = axis * angle / delta
-
-    # 坐标系变换:
-    # Target X = Godot +X
-    # Target Y = Godot -Z
-    # Target Z = Godot +Y
-
-    var acc_target = Vector3(acc_local.x, -acc_local.z, acc_local.y)
-    var gyro_target = Vector3(gyro_local.x, -gyro_local.z, gyro_local.y)
-    var q_target = Quaternion(q_curr.x, -q_curr.z, q_curr.y, q_curr.w)
-
-    nv_gd.update_imu(acc_target, gyro_target, q_target, 0.0)
-
-    last_pos = curr_pos
-    last_vel = curr_vel
-    last_basis = curr_basis
+    # 4. 传入 C++ 扩展 (NeVisionGd)
+    nv_gd.update_imu(acc_target, gyro_target, q_target, delta)

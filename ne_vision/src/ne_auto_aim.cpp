@@ -97,6 +97,7 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.acc = acc;
   msg.gyro = gyro;
   msg.quat = quat;
+  msg.muzzle_speed = muzzel_velocity_;
 
   channels_.imu_data_sPtr_->Transmit(msg);
 }
@@ -155,6 +156,28 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
     return;
   }
   frame = msg.frame;
+}
+
+void NeAutoAim::GetResult(double& yaw, double& pitch)
+{
+  if (is_running_ == false)
+  {
+    NV_WARN("AutoAim is not running, cannot get result");
+    yaw = 0;
+    pitch = 0;
+    return;
+  }
+
+  interfaces::NeAimTraj_t msg;
+  if (!channels_.aim_traj_sPtr_->Receive(msg))
+  {
+    yaw = 0;
+    pitch = 0;
+    NV_WARN("Wait for data from {}", channels_.aim_traj_sPtr_->GetName());
+    return;
+  }
+  yaw = msg.aim_yaw;
+  pitch = msg.aim_pitch;
 }
 
 void NeAutoAim::Stop()
@@ -236,6 +259,8 @@ void NeAutoAim::setupTasks()
       channels_.armor2d_sPtr_);
   task_objs_.debug_visualization_sPtr_->SetArmors3DChannel(
       channels_.armor3d_sPtr_);
+  task_objs_.debug_visualization_sPtr_->SetAimTrajChannel(
+      channels_.aim_traj_sPtr_);
   tasks_.debug_visualization_uPtr_ =
       std::make_unique<NeTask>(task_objs_.debug_visualization_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,

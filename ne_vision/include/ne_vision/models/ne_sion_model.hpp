@@ -50,6 +50,7 @@
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/utils/ne_math.hpp"
+#include <Eigen/src/Core/Matrix.h>
 
 namespace ne_vision
 {
@@ -164,7 +165,9 @@ public:
   // 更新状态，输入3D装甲数据
   void Update(const interfaces::NeArmors3D_t& armors);
 
-  void PredictOnly();
+  Eigen::Vector3d
+  PredictAndChoose(const interfaces::NeImuData_t& imu_data,
+                   std::vector<Eigen::Vector3d>&  all_pred_armors);
 
 private:
   // 预测状态
@@ -206,6 +209,8 @@ private:
 
     size_t max_iter = 5;   // ESIKF 最大更新迭代次数
     double epsilon = 1e-4; // ESIKF 更新迭代收敛阈值
+
+    double additional_dt = 0.02; // 预测时额外增加的时间，单位秒
   } params_;
 
   struct

@@ -30,31 +30,46 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// IMU(extern) >=> [ne_imu_data] >=> tracker_2d
 //
 
-#pragma once
+#include "ne_vision/ne_auto_aim.hpp"
 
-#include "Eigen/Dense"
-#include "Eigen/src/Geometry/Quaternion.h"
-#include <chrono>
+using namespace ne_vision;
 
-namespace ne_vision
+int main()
 {
-namespace interfaces
-{
+  // 获取config地址
+  const char* install_path_name = "NE_VISION_INSTALL_PATH";
+  const char* install_path = std::getenv(install_path_name);
+  NV_ASSERT(install_path != nullptr &&
+            "You need to set the NE_VISION_INSTALL_PATH environment variable.");
 
-struct NeImuData_t
-{
-  // Timestamp of receiving the IMU data
-  std::chrono::steady_clock::time_point receive_stamp;
+  std::string install_path_str = std::string(install_path);
+  std::string config_path = install_path_str + "/share/config/config.yaml";
 
-  Eigen::Vector3d    acc;  // Acceleration in m/s^2
-  Eigen::Vector3d    gyro; // Angular velocity in rad/s. Not use now
-  Eigen::Quaterniond quat; // Orientation as a quaternion
+  cv::Mat   frame;
+  NeAutoAim auto_aim;
 
-  double muzzle_speed; // 弹速
-};
+  auto_aim.Start(config_path);
 
-} // namespace interfaces
-} // namespace ne_vision
+  while (1)
+  {
+    auto_aim.UpdateFrame(frame, 'B');
+    auto_aim.UpdateTestImu(-0.0001);
+    auto_aim.AutoAim();
+
+    double aim_yaw = 0;
+    double aim_pitch = 0;
+
+    auto_aim.GetResult(aim_yaw, aim_pitch);
+
+    cv::Mat re;
+    auto_aim.DebugFrame(re);
+    if (!re.empty())
+    {
+      cv::imshow("debug", re);
+    }
+  }
+
+  return 0;
+}
