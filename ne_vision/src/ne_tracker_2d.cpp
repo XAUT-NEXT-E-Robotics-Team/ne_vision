@@ -175,9 +175,7 @@ NeTracker2D::NeTracker2D(const std::string&       name,
 
 void NeTracker2D::Tarck2D()
 {
-  NV_PROFILE_BLOCK(GetName());
-  // std::chrono::steady_clock::time_point now =
-  // std::chrono::steady_clock::now();
+
   if (!armors_2d_c_sPtr_->Receive(armors_2d_))
   {
     // 不会发生吧，除非把任务触发方式设置错了。
@@ -223,7 +221,7 @@ void NeTracker2D::Tarck2D()
     armor_3d.q = each.imu_to_armor.q;
     armor_3d.t = each.imu_to_armor.t;
     // 坐标系变换
-    armor_3d.yaw = each.imu_to_armor.yaw * Sophus::SO2d::exp(M_PI);
+    armor_3d.yaw = math::WrapToPi(each.imu_to_armor.yaw + M_PI);
     armor_3d.cov = each.imu_to_armor.cov;
     armors_3d_.armors.push_back(armor_3d);
   }
@@ -250,24 +248,6 @@ void NeTracker2D::trackAndChoose()
 
   // 无论如何先清零
   current_aim_.aim_armors.clear();
-
-  // // 删掉所有颜色不符的 TODO
-  // for (auto& armor : armors_2d_.armors)
-  // {
-  //   if (armor.armor_color != 'R' && armor.armor_color != 'B')
-  //   {
-  //     NV_WARN("Invalid armor color: {}, skip this armor.",
-  //             (int)armor.armor_color);
-  //   }
-  // }
-  // char aim_color = armors_2d_.our_color == 'R' ? 'B' : 'R';
-  // armors_2d_.armors.erase(
-  //     std::remove_if(armors_2d_.armors.begin(),
-  //                    armors_2d_.armors.end(),
-  //                    [aim_color](const NeArmors2D_t::Armor_t& armor) {
-  //                      return armor.armor_color != aim_color;
-  //                    }),
-  //     armors_2d_.armors.end());
 
   if (armors_2d_.armors.empty())
   {
@@ -499,7 +479,6 @@ void NeTracker2D::reprojectAndFillDebugInfo()
     each.debug_info.re_projected_pts.push_back(P_RT_2d);
   }
 }
-
 // 实现原理见docs：pnp_optimize_and_cov.md
 // 这个函数是自己写的基础运算，发现贼慢，然后丢进去AI优化
 // 所以很多东西我也不知道为啥这么写的，别问我啊。
@@ -769,7 +748,7 @@ void NeTracker2D::lmOptimize()
     }
 
     each.imu_to_armor.t = x.head<3>();
-    each.imu_to_armor.yaw = Sophus::SO2d::exp(x(5));
+    each.imu_to_armor.yaw = math::WrapToPi(x(5));
     each.imu_to_armor.q = Eigen::AngleAxisd(x(5), Eigen::Vector3d::UnitZ()) *
                           Eigen::AngleAxisd(x(4), Eigen::Vector3d::UnitY()) *
                           Eigen::AngleAxisd(x(3), Eigen::Vector3d::UnitX());

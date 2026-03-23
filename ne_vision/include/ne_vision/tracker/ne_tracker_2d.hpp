@@ -49,8 +49,6 @@
 #include <vector>
 
 #include "opencv2/opencv.hpp"
-// #include "ceres/ceres.h"
-#include "sophus/so2.hpp"
 
 #include "ne_vision/interfaces/ne_armors_2d.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
@@ -88,7 +86,7 @@ private:
     {
       Eigen::Vector3d    t;
       Eigen::Quaterniond q;
-      Sophus::SO2d       yaw;
+      double             yaw;
 
       // 4x4 x y z yaw
       Eigen::Matrix4d cov;

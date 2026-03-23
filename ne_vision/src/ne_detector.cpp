@@ -109,8 +109,6 @@ NeDetector::~NeDetector() {}
 
 void NeDetector::Detect()
 {
-  NV_PROFILE_BLOCK(GetName());
-
   NV_ASSERT(input_c_sPtr_ != nullptr && armors_2d_c_sPtr_ != nullptr &&
             "input_c_sPtr_ and armor_2d_c_sPtr_ cannot be nullptr");
 

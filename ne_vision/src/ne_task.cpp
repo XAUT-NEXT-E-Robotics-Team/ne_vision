@@ -33,6 +33,7 @@
 
 #include "ne_vision/utils/ne_task.hpp"
 #include "ne_vision/utils/ne_log.hpp"
+#include "ne_vision/utils/ne_code_profiler.hpp"
 
 namespace ne_vision
 {
@@ -68,19 +69,11 @@ void NeTask::Start()
         if (stoken.stop_requested())
           break;
 
-        // Calculate the task interval and runtime.
-        execution_start_time_ = std::chrono::steady_clock::now();
-        task_interval_s_ = std::chrono::duration<double>(execution_start_time_ -
-                                                         last_execution_time_)
-                               .count();
-        last_execution_time_ = execution_start_time_;
-
-        task_();
-
-        auto execution_end_time = std::chrono::steady_clock::now();
-        task_runtime_s_ = std::chrono::duration<double>(execution_end_time -
-                                                        execution_start_time_)
-                              .count();
+        // 评估任务执行情况
+        {
+          NV_PROFILE_BLOCK(GetName());
+          task_();
+        }
       }
       NV_INFO("task stopped.");
     });
@@ -99,19 +92,11 @@ void NeTask::Start()
       {
         next_tick += time_interval_;
 
-        // Calculate the task interval and runtime.
-        execution_start_time_ = std::chrono::steady_clock::now();
-        task_interval_s_ = std::chrono::duration<double>(execution_start_time_ -
-                                                         last_execution_time_)
-                               .count();
-        last_execution_time_ = execution_start_time_;
-
-        task_();
-
-        auto execution_end_time = std::chrono::steady_clock::now();
-        task_runtime_s_ = std::chrono::duration<double>(execution_end_time -
-                                                        execution_start_time_)
-                              .count();
+        // 评估任务执行情况
+        {
+          NV_PROFILE_BLOCK(GetName());
+          task_();
+        }
 
         std::unique_lock<std::mutex> lock(mtx);
         cv_pair_sPtr_->first.wait_until(

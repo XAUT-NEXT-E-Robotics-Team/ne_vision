@@ -75,7 +75,7 @@ NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
   {
     _x.p.x() = init_armors.armors[0].t.x();
     _x.p.y() = init_armors.armors[0].t.y();
-    _x.yaw = init_armors.armors[0].yaw.log();
+    _x.yaw = math::WrapToPi(init_armors.armors[0].yaw);
     _x.v.x() = 0;
     _x.v.y() = 0;
     _x.R1 = 0.3;
@@ -114,7 +114,7 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
     z(MEASURE_X_IDX) = armor.t.x();
     z(MEASURE_Y_IDX) = armor.t.y();
     z(MEASURE_Z_IDX) = armor.t.z();
-    z(MEASURE_YAW_IDX) = armor.yaw.log();
+    z(MEASURE_YAW_IDX) = math::WrapToPi(armor.yaw);
     auto& R = armor.cov;
 
     // 2. 处理ID，判断属于车的哪个装甲板
@@ -162,9 +162,9 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
     _x = _x_pred;
     _eP = (_I(K * H) - K * H) * _eP;
 
-    nv_rec_g().log("car_yaw", rerun::Scalars(_x.yaw));
-    nv_rec_g().log("car_R1", rerun::Scalars(_x.R1));
-    nv_rec_g().log("car_R2", rerun::Scalars(_x.R2));
+    // nv_rec_g().log("car_yaw", rerun::Scalars(_x.yaw));
+    // nv_rec_g().log("car_R1", rerun::Scalars(_x.R1));
+    // nv_rec_g().log("car_R2", rerun::Scalars(_x.R2));
   };
 
   if (armors.armors.empty())

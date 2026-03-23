@@ -39,7 +39,6 @@
 #include <vector>
 
 #include "Eigen/Dense"
-#include "sophus/so2.hpp"
 
 #include "ne_vision/utils/ne_math.hpp"
 
@@ -60,7 +59,7 @@ struct NeArmors3D_t
     // Pose from IMU
     Eigen::Vector3d    t;
     Eigen::Quaterniond q;
-    Sophus::SO2d       yaw;
+    double             yaw;
     Eigen::Matrix4d    cov;
 
     // Use to visualization.

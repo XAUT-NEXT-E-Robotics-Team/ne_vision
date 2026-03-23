@@ -148,9 +148,8 @@ int main()
       NV_WARN("No armor in armors_3d received");
     }
     rads_un_wrap.push_back(rad_un_wrap);
-    yaws.push_back(armors_3d.armors.empty()
-                       ? 0
-                       : math::WrapToPi(armors_3d.armors[0].yaw.log()));
+    yaws.push_back(
+        armors_3d.armors.empty() ? 0 : math::WrapToPi(armors_3d.armors[0].yaw));
     distances.push_back(
         armors_3d.armors.empty() ? 0 : armors_3d.armors[0].t.norm());
   }

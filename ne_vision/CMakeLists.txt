@@ -32,7 +32,7 @@
 # Description:
 # Main CMakeLists.txt for ne_vision module.
 
-cmake_minimum_required(VERSION 3.27)
+cmake_minimum_required(VERSION 3.22.1)
 
 project(ne_vision)
 
@@ -57,8 +57,6 @@ find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenVINO REQUIRED)
-find_package(Ceres REQUIRED)
-message(STATUS "Ceres libraries: ${CERES_LIBRARIES}")
 
 #################################
 # Build basic ne_vision library #
@@ -86,25 +84,22 @@ target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 add_subdirectory(3rds/yaml-cpp)
-add_subdirectory(3rds/Sophus)
 
-if(USE_RERUN_DEBUG)
-    message(STATUS "[ne_vision] Rerun debug is enabled.
-        Rerun SDK will be integrated for enhanced debugging capabilities.")
-    message(STATUS "[ne_vision] Please wait for download.")
-    target_compile_definitions(${PROJECT_NAME} PUBLIC USE_RERUN)
-    include(FetchContent)
-    FetchContent_Declare(
-        rerun_sdk
-        URL
-        https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
+# 强依赖RERUN
+message(STATUS "[ne_vision] Rerun debug is enabled.
+    Rerun SDK will be integrated for enhanced debugging capabilities.")
+message(STATUS "[ne_vision] Please wait for download.")
+include(FetchContent)
+FetchContent_Declare(
+    rerun_sdk
+    URL
+    https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
 
-    # Ensure rerun_sdk is built with -fPIC
-    # so it can be linked into our shared library
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-    FetchContent_MakeAvailable(rerun_sdk)
-    target_link_libraries(${PROJECT_NAME} PUBLIC rerun_sdk)
-endif()
+# Ensure rerun_sdk is built with -fPIC
+# so it can be linked into our shared library
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+FetchContent_MakeAvailable(rerun_sdk)
+target_link_libraries(${PROJECT_NAME} PUBLIC rerun_sdk)
 
 target_link_libraries(
     ${PROJECT_NAME}
@@ -114,9 +109,6 @@ target_link_libraries(
     spdlog::spdlog
     Eigen3::Eigen
     yaml-cpp
-    sophus
-    PRIVATE
-    Ceres::ceres
 )
 
 ############

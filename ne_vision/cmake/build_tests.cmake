@@ -105,9 +105,7 @@ build_unit_test(ut_log_and_param)
 message(STATUS "[ne_vision][test] Building manual tests...")
 
 build_manual_test(mt_auto_aim_video_test "")
-
-# 为什么这里必须要显式的写ceres
-build_manual_test(mt_tracker_2d "Ceres::ceres;mgl")
+build_manual_test(mt_tracker_2d "mgl")
 
 ####################
 # Install all test #
