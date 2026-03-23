@@ -38,6 +38,7 @@
 #include <string>
 
 #include "ne_vision/interfaces/ne_aim_traj.hpp"
+#include "ne_vision/ne_channals.hpp"
 #include "ne_vision/utils/ne_channel.hpp"
 
 #include "ne_vision/interfaces/ne_frame_input.hpp"
@@ -48,30 +49,6 @@
 namespace ne_vision
 {
 
-/**
- * HOW IS WORKING?
- *
- * Receive data from all channels and store them in the visualization
- * queue. The queue will be cleared if the size exceeds the maximum limit. The
- * data in the queue will be matched based on the timestamp of the input
- * frame. If the timestamp of the data is less than the input frame, it will
- * be discarded. If the timestamp of the data is equal or later than the input
- * frame, it will be stored in the visualization pack. If the timestamp of the
- * data is greater than the input frame, it will be kept in the queue for the
- * next matching. The visualization pack will be marked as matched if all data
- * is matched successfully. The visualization pack will be cleared if the
- * matching fails. The visualization pack will be transmitted to the debug
- * frame channel after drawing.
- *
- * The matching process is based on the timestamp of the input frame,
- * which is captured by the camera. The timestamp of the data is also captured
- * by the camera, so they should be synchronized. However, there might be some
- * delay in the processing of the data, so the timestamp of the data might be
- * slightly different from the timestamp of the input frame. Therefore, we
- * need to use a queue to store the data and match them based on the
- * timestamp. The matching process will ensure that the data is matched
- * correctly and the visualization is accurate.
- */
 class NeVisionVisualization final
 {
 private:
@@ -99,35 +76,30 @@ private:
   };
 
 public:
-  explicit NeVisionVisualization(std::string                name,
-                                 const NeFrameInputCsPtr_t& input_c_sPtr,
-                                 const NeDebugFrameCsPtr_t& debug_frame_c_sPtr);
+  explicit NeVisionVisualization(std::string name);
   ~NeVisionVisualization() = default;
 
   inline std::string GetName() { return name_; }
 
-  // Set your channels before calling Draw().
-  // If you don't want to visualize some data, just don't set the channel. The
-  // visualization will be based on the data you have set.
-  inline void SetArmors2DChannel(const NeArmors2DCsPtr_t& armors_2d_c_sPtr)
+  inline void AddArmors2DData()
   {
-    NV_ASSERT(armors_2d_c_sPtr != nullptr &&
+    NV_ASSERT(NV_CHANNELS.armor2d_sPtr() != nullptr &&
               "Armors2D channel must not be null.");
-    channels_.armors2d_c_sPtr = armors_2d_c_sPtr;
+    channels_.armors2d_c_sPtr = NV_CHANNELS.armor2d_sPtr();
   }
 
-  inline void SetArmors3DChannel(const NeArmors3DCsPtr_t& armors_3d_c_sPtr)
+  inline void AddArmors3DData()
   {
-    NV_ASSERT(armors_3d_c_sPtr != nullptr &&
+    NV_ASSERT(NV_CHANNELS.armor3d_sPtr() != nullptr &&
               "Armors3D channel must not be null.");
-    channels_.armors3d_c_sPtr = armors_3d_c_sPtr;
+    channels_.armors3d_c_sPtr = NV_CHANNELS.armor3d_sPtr();
   }
 
-  inline void SetAimTrajChannel(const NeAimTrajCSPtr_t& aim_traj_c_sPtr)
+  inline void AddAimTrajData()
   {
-    NV_ASSERT(aim_traj_c_sPtr != nullptr &&
+    NV_ASSERT(NV_CHANNELS.aim_traj_sPtr() != nullptr &&
               "AimTraj channel must not be null.");
-    channels_.aim_traj_c_sPtr = aim_traj_c_sPtr;
+    channels_.aim_traj_c_sPtr = NV_CHANNELS.aim_traj_sPtr();
   }
 
   void Draw();

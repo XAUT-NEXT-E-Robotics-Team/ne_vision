@@ -39,6 +39,7 @@
 #include "ne_vision/utils/ne_param.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/utils/ne_code_profiler.hpp"
+#include "ne_vision/ne_channals.hpp"
 #include <cfloat>
 #include <chrono>
 #include <memory>
@@ -77,7 +78,7 @@ void NeAutoAim::UpdateFrame(const cv::Mat& frame, char our_color)
   }
 
   msg.our_color = our_color;
-  channels_.frame_input_sPtr_->Transmit(msg);
+  NV_CHANNELS.frame_input_sPtr()->Transmit(msg);
 }
 
 void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
@@ -100,7 +101,7 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.quat = quat;
   msg.muzzle_speed = muzzel_velocity_;
 
-  channels_.imu_data_sPtr_->Transmit(msg);
+  NV_CHANNELS.imu_data_sPtr()->Transmit(msg);
 }
 
 void NeAutoAim::Start(std::string config_file_path)
@@ -143,80 +144,20 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
   }
 
   interfaces::NeDebugFrame_t msg;
-  if (!channels_.debug_frame_sPtr_->Receive(msg))
+  if (!NV_CHANNELS.debug_frame_sPtr()->Receive(msg))
   {
     frame = cv::Mat();
-    NV_WARN("Wait for data from {}", channels_.debug_frame_sPtr_->GetName());
+    NV_WARN("Wait for data from {}", NV_CHANNELS.debug_frame_sPtr()->GetName());
     return;
   }
   if (msg.frame.Empty())
   {
     frame = cv::Mat();
     NV_WARN("Received empty frame from {}",
-            channels_.debug_frame_sPtr_->GetName());
+            NV_CHANNELS.debug_frame_sPtr()->GetName());
     return;
   }
   frame = msg.frame;
-
-  if (frame.empty())
-    return;
-
-  // 计算各个模块计算耗时和频率
-  double detect_ms = NV_PROFILE_INSTANCE(task_objs_.detector_sPtr_->GetName())
-                         ->GetResult()
-                         .GetCurrentS() *
-                     1000.0;
-  double detect_hz =
-      1.0 / (NV_PROFILE_INSTANCE(task_objs_.detector_sPtr_->GetName())
-                 ->GetResult()
-                 .GetCurrentPeriodS());
-
-  double tracker2d_ms =
-      NV_PROFILE_INSTANCE(task_objs_.tracker_2d_sPtr_->GetName())
-          ->GetResult()
-          .GetCurrentS() *
-      1000.0;
-  double tracker2d_hz =
-      1.0 / (NV_PROFILE_INSTANCE(task_objs_.tracker_2d_sPtr_->GetName())
-                 ->GetResult()
-                 .GetCurrentPeriodS());
-
-  double tracker3d_ms =
-      NV_PROFILE_INSTANCE(task_objs_.tracker_3d_sPtr_->GetName())
-          ->GetResult()
-          .GetCurrentS() *
-      1000.0;
-
-  double tracker3d_hz =
-      1.0 / (NV_PROFILE_INSTANCE(task_objs_.tracker_3d_sPtr_->GetName())
-                 ->GetResult()
-                 .GetCurrentPeriodS());
-
-  cv::putText(frame,
-              fmt::format("Detect: {:.1f} ms, {:.1f} Hz", detect_ms, detect_hz),
-              cv::Point(10, 30),
-              cv::FONT_HERSHEY_SIMPLEX,
-              0.7,
-              cv::Scalar(0, 255, 0),
-              2);
-  cv::putText(frame,
-              fmt::format("Tracker 2D: {:.1f} ms, {:.1f} Hz",
-                          tracker2d_ms,
-                          tracker2d_hz),
-              cv::Point(10, 60),
-              cv::FONT_HERSHEY_SIMPLEX,
-              0.7,
-              cv::Scalar(0, 255, 0),
-              2);
-  cv::putText(frame,
-              fmt::format("Tracker 3D: {:.1f} ms, {:.1f} Hz",
-                          tracker3d_ms,
-                          tracker3d_hz),
-              cv::Point(10, 90),
-              cv::FONT_HERSHEY_SIMPLEX,
-              0.7,
-              cv::Scalar(0, 255, 0),
-              2);
 }
 
 void NeAutoAim::GetResult(double& yaw, double& pitch)
@@ -230,11 +171,11 @@ void NeAutoAim::GetResult(double& yaw, double& pitch)
   }
 
   interfaces::NeAimTraj_t msg;
-  if (!channels_.aim_traj_sPtr_->Receive(msg))
+  if (!NV_CHANNELS.aim_traj_sPtr()->Receive(msg))
   {
     yaw = 0;
     pitch = 0;
-    NV_WARN("Wait for data from {}", channels_.aim_traj_sPtr_->GetName());
+    NV_WARN("Wait for data from {}", NV_CHANNELS.aim_traj_sPtr()->GetName());
     return;
   }
   yaw = msg.aim_yaw;
@@ -254,57 +195,27 @@ void NeAutoAim::Stop()
 
 void NeAutoAim::setupParameters() {}
 
-void NeAutoAim::setupChannels()
-{
-  channels_.frame_input_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeFrameInput_t>>(
-          "frame_input", NeChannelType_e::KEEP_ON_READ, 1);
-  channels_.armor2d_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeArmors2D_t>>(
-          "armor2d", NeChannelType_e::KEEP_ON_READ, 1);
-  channels_.imu_data_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeImuData_t>>(
-          "imu_data", NeChannelType_e::KEEP_ON_READ, 100);
-  channels_.armor3d_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeArmors3D_t>>(
-          "armor3d", NeChannelType_e::KEEP_ON_READ, 1);
-  channels_.aim_traj_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeAimTraj_t>>(
-          "aim_traj", NeChannelType_e::KEEP_ON_READ, 1);
-
-  channels_.debug_frame_sPtr_ =
-      std::make_shared<NeChannel<interfaces::NeDebugFrame_t>>(
-          "debug_frame", NeChannelType_e::KEEP_ON_READ, 1);
-}
+void NeAutoAim::setupChannels() {}
 
 void NeAutoAim::setupTasks()
 {
-  task_objs_.detector_sPtr_ = std::make_shared<NeDetector>(
-      "detector", channels_.frame_input_sPtr_, channels_.armor2d_sPtr_);
+  task_objs_.detector_sPtr_ = std::make_shared<NeDetector>("detector");
   tasks_.detector_uPtr_ =
       std::make_unique<NeTask>(task_objs_.detector_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               channels_.frame_input_sPtr_,
+                               NV_CHANNELS.frame_input_sPtr(),
                                task_objs_.detector_sPtr_.get(),
                                &NeDetector::Detect);
 
-  task_objs_.tracker_2d_sPtr_ =
-      std::make_shared<NeTracker2D>("tracker_2D",
-                                    channels_.armor2d_sPtr_,
-                                    channels_.imu_data_sPtr_,
-                                    channels_.armor3d_sPtr_);
+  task_objs_.tracker_2d_sPtr_ = std::make_shared<NeTracker2D>("tracker_2D");
   tasks_.tracker_2d_uPtr_ =
       std::make_unique<NeTask>(task_objs_.tracker_2d_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               channels_.armor2d_sPtr_,
+                               NV_CHANNELS.armor2d_sPtr(),
                                task_objs_.tracker_2d_sPtr_.get(),
                                &NeTracker2D::Tarck2D);
 
-  task_objs_.tracker_3d_sPtr_ =
-      std::make_shared<NeTracker3D>("tracker_3D",
-                                    channels_.armor3d_sPtr_,
-                                    channels_.imu_data_sPtr_,
-                                    channels_.aim_traj_sPtr_);
+  task_objs_.tracker_3d_sPtr_ = std::make_shared<NeTracker3D>("tracker_3D");
   tasks_.tracker_3d_uPtr_ =
       std::make_unique<NeTask>(task_objs_.tracker_3d_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_INTERVAL,
@@ -313,19 +224,14 @@ void NeAutoAim::setupTasks()
                                &NeTracker3D::Track);
 
   task_objs_.debug_visualization_sPtr_ =
-      std::make_shared<NeVisionVisualization>("debug_visualization",
-                                              channels_.frame_input_sPtr_,
-                                              channels_.debug_frame_sPtr_);
-  task_objs_.debug_visualization_sPtr_->SetArmors2DChannel(
-      channels_.armor2d_sPtr_);
-  task_objs_.debug_visualization_sPtr_->SetArmors3DChannel(
-      channels_.armor3d_sPtr_);
-  task_objs_.debug_visualization_sPtr_->SetAimTrajChannel(
-      channels_.aim_traj_sPtr_);
+      std::make_shared<NeVisionVisualization>("debug_visualization");
+  task_objs_.debug_visualization_sPtr_->AddArmors2DData();
+  task_objs_.debug_visualization_sPtr_->AddArmors3DData();
+  task_objs_.debug_visualization_sPtr_->AddAimTrajData();
   tasks_.debug_visualization_uPtr_ =
       std::make_unique<NeTask>(task_objs_.debug_visualization_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               channels_.frame_input_sPtr_,
+                               NV_CHANNELS.frame_input_sPtr(),
                                task_objs_.debug_visualization_sPtr_.get(),
                                &NeVisionVisualization::Draw);
 }

@@ -35,6 +35,7 @@
 #include "ne_vision/debug/ne_vision_visualization.hpp"
 
 #include "Eigen/Dense"
+#include "ne_vision/ne_channals.hpp"
 #include "opencv2/opencv.hpp"
 
 #include "ne_vision/utils/ne_debug.hpp"
@@ -47,18 +48,15 @@
 namespace ne_vision
 {
 
-NeVisionVisualization::NeVisionVisualization(
-    std::string                name,
-    const NeFrameInputCsPtr_t& input_c_sPtr,
-    const NeDebugFrameCsPtr_t& debug_frame_c_sPtr)
+NeVisionVisualization::NeVisionVisualization(std::string name)
     : name_(std::move(name))
 {
-  NV_ASSERT(input_c_sPtr != nullptr && debug_frame_c_sPtr != nullptr &&
+  channels_.input_c_sPtr = NV_CHANNELS.frame_input_sPtr();
+  channels_.debug_frame_c_sPtr = NV_CHANNELS.debug_frame_sPtr();
+
+  NV_ASSERT(channels_.input_c_sPtr != nullptr &&
+            channels_.debug_frame_c_sPtr != nullptr &&
             "Input and debug frame channels must not be null.");
-
-  channels_.input_c_sPtr = input_c_sPtr;
-  channels_.debug_frame_c_sPtr = debug_frame_c_sPtr;
-
   try
   {
     // Camera intrinsic parameters.

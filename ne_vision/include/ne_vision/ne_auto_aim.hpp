@@ -102,17 +102,6 @@ private:
 
   struct
   {
-    std::shared_ptr<NeChannel<interfaces::NeFrameInput_t>> frame_input_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeArmors2D_t>>   armor2d_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeImuData_t>>    imu_data_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeArmors3D_t>>   armor3d_sPtr_;
-    std::shared_ptr<NeChannel<interfaces::NeAimTraj_t>>    aim_traj_sPtr_;
-
-    std::shared_ptr<NeChannel<interfaces::NeDebugFrame_t>> debug_frame_sPtr_;
-  } channels_;
-
-  struct
-  {
     std::unique_ptr<NeTask> detector_uPtr_;
     std::unique_ptr<NeTask> tracker_2d_uPtr_;
     std::unique_ptr<NeTask> tracker_3d_uPtr_;

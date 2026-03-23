@@ -60,9 +60,7 @@ private:
   using NeArmors2DCsPtr_t = std::shared_ptr<NeChannel<NeArmors2D_t>>;
 
 public:
-  explicit NeDetector(const std::string&         name,
-                      const NeFrameInputCsPtr_t& input_c_sPtr,
-                      const NeArmors2DCsPtr_t&   armors_2d_c_sPtr);
+  explicit NeDetector(const std::string& name);
   ~NeDetector();
 
   std::string GetName() const { return name_; }

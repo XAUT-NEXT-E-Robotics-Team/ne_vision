@@ -18,7 +18,7 @@ Com_ps* BallisticModel::judgeK1()
   {
     Com_ptr_->K1 = BIG_BALL_K1;
   }
-  std::cout << Com_ptr_->K1 << std::endl;
+  // std::cout << Com_ptr_->K1 << std::endl;
   return Com_ptr_;
 }
 float BallisticModel::Cal_OssneHeight(float x, float cal_pitch)

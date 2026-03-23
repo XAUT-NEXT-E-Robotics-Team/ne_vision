@@ -43,6 +43,8 @@
 #include "ne_vision/utils/ne_param.hpp"
 #include "ne_vision/utils/ne_code_profiler.hpp"
 
+#include "ne_vision/ne_channals.hpp"
+
 #include "ne_vision/detector/openvino_infer.hpp"
 
 #define MODEL_ROW 640
@@ -51,12 +53,11 @@
 namespace ne_vision
 {
 
-NeDetector::NeDetector(const std::string&         name,
-                       const NeFrameInputCsPtr_t& input_c_sPtr,
-                       const NeArmors2DCsPtr_t&   armors_2d_c_sPtr)
-    : name_(name), input_c_sPtr_(input_c_sPtr),
-      armors_2d_c_sPtr_(armors_2d_c_sPtr)
+NeDetector::NeDetector(const std::string& name) : name_(name)
 {
+  input_c_sPtr_ = NV_CHANNELS.frame_input_sPtr();
+  armors_2d_c_sPtr_ = NV_CHANNELS.armor2d_sPtr();
+
   NV_ASSERT(input_c_sPtr_ != nullptr && armors_2d_c_sPtr_ != nullptr &&
             "input_c_sPtr_ and armor_2d_c_sPtr_ cannot be nullptr");
 

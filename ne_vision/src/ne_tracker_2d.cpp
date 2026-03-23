@@ -53,19 +53,17 @@
 #include "ne_vision/utils/ne_math.hpp"
 #include "ne_vision/utils/ne_code_profiler.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
-#include "rerun/archetypes/scalars.hpp"
+#include "ne_vision/ne_channals.hpp"
 
 #define BEBUG_LOG
 
 namespace ne_vision
 {
 
-NeTracker2D::NeTracker2D(const std::string&       name,
-                         const NeArmors2DCsPtr_t& armors_2d_cs_ptr,
-                         const NeImuDataCsPtr_t&  imu_data_cs_ptr,
-                         const NeArmors3DCsPtr_t& armors_3d_cs_ptr)
-    : name_(name), armors_2d_c_sPtr_(armors_2d_cs_ptr),
-      imu_data_c_sPtr_(imu_data_cs_ptr), armors_3d_c_sPtr_(armors_3d_cs_ptr)
+NeTracker2D::NeTracker2D(const std::string& name)
+    : name_(name), armors_2d_c_sPtr_(NV_CHANNELS.armor2d_sPtr()),
+      imu_data_c_sPtr_(NV_CHANNELS.imu_data_sPtr()),
+      armors_3d_c_sPtr_(NV_CHANNELS.armor3d_sPtr())
 {
 
   // 读取一些参数

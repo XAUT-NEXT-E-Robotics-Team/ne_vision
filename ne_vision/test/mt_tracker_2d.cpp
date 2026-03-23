@@ -95,8 +95,7 @@ int main()
   NV_PARAM.Load(config_path);
 
   // 这里没有参数没办法初始化
-  NeTracker2D tracker_2d(
-      "tracker_2d", armors_2d_c_sPtr, imu_data_c_sPtr, armors_3d_c_sPtr);
+  NeTracker2D tracker_2d("tracker_2d");
 
   NeArmors2D_t armors_2d;
   NeImuData_t  imu_data;

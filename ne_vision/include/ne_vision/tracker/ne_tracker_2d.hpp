@@ -114,10 +114,7 @@ private:
   };
 
 public:
-  explicit NeTracker2D(const std::string&       name,
-                       const NeArmors2DCsPtr_t& armors_2d_cs_ptr,
-                       const NeImuDataCsPtr_t&  imu_data_cs_ptr,
-                       const NeArmors3DCsPtr_t& armors_3d_cs_ptr);
+  explicit NeTracker2D(const std::string& name);
   ~NeTracker2D() = default;
 
   inline std::string GetName() const { return name_; }

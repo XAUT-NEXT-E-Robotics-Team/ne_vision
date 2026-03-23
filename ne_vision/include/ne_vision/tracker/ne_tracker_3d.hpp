@@ -60,10 +60,7 @@ private:
   using NeAimTrajCSPtr_t = std::shared_ptr<NeChannel<NeAimTraj_t>>;
 
 public:
-  explicit NeTracker3D(const std::string&       name,
-                       const NeArmors3DCSPtr_t& armors_3d_c_sPtr,
-                       const NeImuDataCSPtr_t&  imu_data_c_sPtr,
-                       const NeAimTrajCSPtr_t&  aim_traj_c_sPtr);
+  explicit NeTracker3D(const std::string& name);
   ~NeTracker3D() = default;
 
   void Track();

@@ -5,6 +5,7 @@
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
+#include "ne_vision/ne_channals.hpp"
 
 #define IS_SION_MODEL(aim_str)                                                 \
   (aim_str == "1" || aim_str == "2" || aim_str == "3" || aim_str == "4" ||     \
@@ -15,12 +16,10 @@
 namespace ne_vision
 {
 
-NeTracker3D::NeTracker3D(const std::string&       name,
-                         const NeArmors3DCSPtr_t& armors_3d_c_sPtr,
-                         const NeImuDataCSPtr_t&  imu_data_c_sPtr,
-                         const NeAimTrajCSPtr_t&  aim_traj_c_sPtr)
-    : name_(name), armors_3d_c_sPtr_(armors_3d_c_sPtr),
-      imu_data_c_sPtr_(imu_data_c_sPtr), aim_traj_c_sPtr_(aim_traj_c_sPtr)
+NeTracker3D::NeTracker3D(const std::string& name)
+    : name_(name), armors_3d_c_sPtr_(NV_CHANNELS.armor3d_sPtr()),
+      imu_data_c_sPtr_(NV_CHANNELS.imu_data_sPtr()),
+      aim_traj_c_sPtr_(NV_CHANNELS.aim_traj_sPtr())
 {
   NV_ASSERT(armors_3d_c_sPtr_ != nullptr && imu_data_c_sPtr_ != nullptr &&
             aim_traj_c_sPtr_ != nullptr &&
