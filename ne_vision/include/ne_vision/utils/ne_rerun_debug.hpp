@@ -30,62 +30,58 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// Rerun singleton wrapper for debugging visualizations.
-// To enable, define the macro USE_RERUN during compilation.
-// For example, in CMake:
-// target_compile_definitions(your_target PRIVATE USE_RERUN)
+// 基于 Rerun 的调试可视化 + 日志记录功能
+// 可以方便你去发现问题
 
 #pragma once
 
-// #ifdef USE_RERUN
-// #include <iostream> // Required for std::cerr
-// #include "rerun.hpp"
-// #include "rerun/demo_utils.hpp"
-// #include "rerun/archetypes/scalars.hpp"
-// #include "rerun/archetypes/points2d.hpp"
-// #include "rerun/recording_stream.hpp"
-// #include "rerun/archetypes/scalars.hpp"
-// #include "rerun/archetypes/points3d.hpp"
-// #include "ne_vision/utils/ne_log.hpp"
-// #endif
+#include <mutex>
+#include <optional>
+#include <string>
+#include <memory>
+#include <chrono>
 
-// namespace ne_vision
-// {
+#include "rerun/recording_stream.hpp"
 
-// #ifdef USE_RERUN
+namespace ne_vision
+{
 
-// class NeRerunDebug
-// {
-// public:
-//   static rerun::RecordingStream& instance()
-//   {
-//     static NeRerunDebug singleton;
-//     return singleton.rec;
-//   }
+class NeRerunDebug final
+{
 
-//   NeRerunDebug(const NeRerunDebug&) = delete;
-//   NeRerunDebug& operator=(const NeRerunDebug&) = delete;
+public:
+  ~NeRerunDebug() = default;
 
-// private:
-//   NeRerunDebug() : rec("ne_vision")
-//   {
-//     // Capture the connection status
-//     auto status = rec.connect_grpc();
-//     if (status.is_err())
-//     {
-//       NV_ERROR("Failed to connect to Rerun server: {}", status.description);
-//     }
-//   }
+  // 单例
+  const NeRerunDebug& operator=(const NeRerunDebug&) = delete;
+  NeRerunDebug&       operator=(NeRerunDebug&&) = delete;
+  NeRerunDebug(const NeRerunDebug&) = delete;
+  NeRerunDebug(NeRerunDebug&&) = delete;
 
-//   rerun::RecordingStream rec;
-// };
+  static NeRerunDebug& GetInstance()
+  {
+    static NeRerunDebug instance;
+    return instance;
+  }
 
-// // Global accessor for convenience
-// // Changed to function to avoid static initialization order issues
-// inline DummyRecordingStream& nv_rec_g() { return NeRerunDebug::instance(); }
+  // 初始化 Rerun
+  void Init(const std::string& app_name = "ne_vision_debug",
+            const std::string& tcp_url = "127.0.0.1:9876")
+  {
+    std::lock_guard<std::mutex> lock(mtx_);
+    app_name_ = app_name;
+    tcp_url_ = tcp_url;
 
-// #define NV_RERUN_CV_IMAGE(cv_mat) nullptr
+    // 构造rerun对象
+  }
 
-// #endif // USE_RERUN
+private:
+  NeRerunDebug() = default;
 
-// } // namespace ne_vision
+  std::mutex                            mtx_;
+  std::string                           app_name_ = "ne_vision_debug";
+  std::string                           tcp_url_ = "127.0.0.1:9876";
+  std::optional<rerun::RecordingStream> rec_;
+};
+
+} // namespace ne_vision

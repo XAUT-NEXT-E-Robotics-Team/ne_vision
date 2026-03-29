@@ -157,7 +157,7 @@ if(ENABLE_BUILD_TESTS)
     include(cmake/build_tests.cmake)
 endif()
 
-include(cmake/build_real.cmake)
+# include(cmake/build_real.cmake)
 
 #################################
 # Build ros2 node and component #

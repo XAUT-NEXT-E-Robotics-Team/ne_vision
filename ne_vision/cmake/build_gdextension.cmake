@@ -1,17 +1,17 @@
 ###########################################################
 ##                                                       ##
 ##                        .                 .:-:         ##
-##                       :-:              :-::           ##
-##                      -----          .:---.            ##
+##                        :-:               :-::         ##
+##                      -----           .:---.           ##
 ##                    .-------.     .:-----:             ##
 ##                   :---------. .:-------.              ##
 ##                  :--------------------.               ##
-##                ---------------------                  ##
-##               .-------:. :---------:                  ##
-##              :-----:.     .-------.                   ##
-##             .:---:         .-----.                    ##
-##            .:-:.             :-:                      ##
-##          .-:.                 .                       ##
+##                 ---------------------                 ##
+##                .-------:. :---------:                 ##
+##               :-----:.     .-------.                  ##
+##              .:---:         .-----.                   ##
+##            .:-:.              :-:                     ##
+##          .-:.                  .                      ##
 ##         .:                                            ##
 ##                                                       ##
 ##    ███╗   ██╗███████╗██╗  ██╗████████╗    ███████╗    ##
@@ -30,14 +30,9 @@
 ###########################################################
 
 # Description:
-# Build GDExtension for ne_vision module.
-
-##########################
-# Set some CMake options #
-##########################
+# Build GDExtension for ne_vision module with Linux/macOS support.
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 set(LOG_PREFIX "[ne_vision][GDExtension]")
 
 set(
@@ -49,8 +44,19 @@ set(
 # Check and set the target platform and architecture #
 ######################################################
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  message(FATAL_ERROR "${LOG_PREFIX} This project is only supported on Linux.")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(OS_RPATH "$ORIGIN")
+  set(OS_LINK_FLAGS "-Wl,--disable-new-dtags")
+  set(LIB_SUFFIX ".so")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  # macOS 使用 @loader_path 查找同目录下的动态库
+  set(OS_RPATH "@loader_path")
+  set(OS_LINK_FLAGS "")
+  set(LIB_SUFFIX ".dylib")
+  # 允许 macOS 上的 RPATH 自动解析
+  set(CMAKE_MACOSX_RPATH 1)
+else()
+  message(FATAL_ERROR "${LOG_PREFIX} This project is only supported on Linux and macOS.")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64")
@@ -78,15 +84,12 @@ file(GLOB_RECURSE NE_VISION_GD_EXTENSION_HEADERS
   interfaces/gdextension/include/*.hpp
 )
 
-message(STATUS "[ne_vision][GDExtension] GDExtension Source files:")
-
-foreach(source_file ${GD_EXTENSION_SOURCES})
-  message(STATUS "[ne_vision][GDExtension]   ${source_file}")
-endforeach()
-foreach(header_file ${GD_EXTENSION_HEADERS})
-  message(STATUS "[ne_vision][GDExtension]   ${header_file}")
+message(STATUS "${LOG_PREFIX} GDExtension Source files:")
+foreach(source_file ${NE_VISION_GD_EXTENSION_SOURCES} ${NE_VISION_GD_EXTENSION_HEADERS})
+  message(STATUS "${LOG_PREFIX}   ${source_file}")
 endforeach()
 
+# 定义库文件
 add_library(
   ne_vision_gd
   SHARED
@@ -101,8 +104,10 @@ target_include_directories(
   interfaces/gdextension/include
 )
 
-# godot-cpp is only needed for GDExtension build
-add_subdirectory(${PROJECT_SOURCE_DIR}/3rds/godot-cpp)
+# 编译 godot-cpp 依赖
+if(NOT TARGET godot-cpp)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/3rds/godot-cpp)
+endif()
 
 target_link_libraries(
   ne_vision_gd
@@ -111,17 +116,21 @@ target_link_libraries(
   ne_vision
 )
 
+# 设置目标属性，适配 macOS 命名规范
 set_target_properties(
   ne_vision_gd
   PROPERTIES
   PREFIX "lib"
   OUTPUT_NAME "ne_vision_gd.${ARCHITECTURE}"
-  INSTALL_RPATH "$ORIGIN"
+  INSTALL_RPATH "${OS_RPATH}"
   INSTALL_RPATH_USE_LINK_PATH TRUE
-  LINK_FLAGS "-Wl,--disable-new-dtags"
-  BUILD_WITH_INSTALL_RPATH TRUE # Use INSTALL_RPATH for build tree
+  LINK_FLAGS "${OS_LINK_FLAGS}"
+  BUILD_WITH_INSTALL_RPATH TRUE
+  # macOS 专属设置：
+  MACOSX_RPATH TRUE
 )
 
+# 自动生成 .gdextension 配置文件
 add_custom_command(
   OUTPUT ${GD_EXTENSION_FILE_PATH}
   COMMAND python3
@@ -137,25 +146,27 @@ add_custom_target(
   DEPENDS ${GD_EXTENSION_FILE_PATH}
 )
 
-set(CMAKE_INSTALL_RPATH "$ORIGIN/../bin")
+#################
+# Install Logic #
+#################
+
+set(CMAKE_INSTALL_RPATH "${OS_RPATH}/../lib")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+# 安装动态库至 lib 目录
 install(
-  TARGETS ne_vision_gd
+  TARGETS ne_vision_gd ne_vision
   LIBRARY DESTINATION ne_vision_gd/lib
+  RUNTIME DESTINATION ne_vision_gd/lib  # 兼容 Windows 逻辑
 )
 
-
-install(
-  TARGETS ne_vision
-  LIBRARY DESTINATION ne_vision_gd/lib
-)
-
+# 安装配置文件至根目录
 install(
   FILES ${GD_EXTENSION_FILE_PATH}
   DESTINATION ne_vision_gd
 )
 
+# 安装资源与配置
 install_resource(
     SOURCE ${CMAKE_SOURCE_DIR}/model
     DESTINATION ne_vision_gd/
@@ -165,27 +176,3 @@ install_resource(
     SOURCE ${CMAKE_SOURCE_DIR}/config
     DESTINATION ne_vision_gd/
 )
-
-#####################################################
-# Find all runtime dependencies of the ne_vision_gd #
-#####################################################
-# install(CODE [[
-#     file(GET_RUNTIME_DEPENDENCIES
-#         EXECUTABLES $<TARGET_FILE:ne_vision_gd>
-#         DIRECTORIES "${CMAKE_BINARY_DIR}"
-#         RESOLVED_DEPENDENCIES_VAR _resolved_deps
-#         UNRESOLVED_DEPENDENCIES_VAR _unresolved_deps
-#     )
-
-#     foreach(_file ${_resolved_deps})
-#         message(STATUS "Packing ALL dependency: ${_file}")
-#         file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/ne_vision_gd/lib"
-#              TYPE SHARED_LIBRARY
-#              FOLLOW_SYMLINK_CHAIN
-#              FILES "${_file}")
-#     endforeach()
-
-#     foreach(_file ${_unresolved_deps})
-#         message(WARNING "CRITICAL: Dependency not found: ${_file}")
-#     endforeach()
-# ]])

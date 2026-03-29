@@ -81,6 +81,7 @@ public:
 
   inline std::string GetName() { return name_; }
 
+  // 需要可视化（或发布）哪些消息，就调用对应的Add函数
   inline void AddArmors2DData()
   {
     NV_ASSERT(NV_CHANNELS.armor2d_sPtr() != nullptr &&

@@ -7,3 +7,5 @@ ne_vision_sim/ne-vision-sim/.godot/
 ne_vision_sim/ne-vision-sim/gdextensions/ne_vision_gd/
 ne_vision_sim/armor_project/
 scripts/__pycache__/
+.cache/
+.venv/

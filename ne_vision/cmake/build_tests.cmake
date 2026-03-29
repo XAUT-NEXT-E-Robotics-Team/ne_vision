@@ -1,11 +1,11 @@
 ###########################################################
 ##                                                       ##
-##                        .                 .:-:         ##
-##                       :-:              :-::           ##
-##                      -----          .:---.            ##
-##                    .-------.     .:-----:             ##
-##                   :---------. .:-------.              ##
-##                  :--------------------.               ##
+##                       .                 .:-:          ##
+##                       :-:               :-::          ##
+##                     -----           .:---.            ##
+##                   .-------.      .:-----:             ##
+##                  :---------. .:-------.               ##
+##                 :--------------------.                ##
 ##                ---------------------                  ##
 ##               .-------:. :---------:                  ##
 ##              :-----:.     .-------.                   ##
@@ -55,6 +55,21 @@ find_package(GTest REQUIRED)
 set(MathGL2_DIR "/usr/local/lib/cmake/mathgl")
 find_package(MathGL2 REQUIRED)
 
+#########################################################
+# Cross-Platform Configurations (macOS vs Linux)        #
+#########################################################
+if(APPLE)
+    # macOS uses @executable_path instead of $ORIGIN for RPATH
+    # and macOS linker does not support --disable-new-dtags
+    set(PLATFORM_RPATH "@executable_path/../lib")
+    set(PLATFORM_LINK_FLAGS "")
+else()
+    # Standard Linux ELF setup
+    set(PLATFORM_RPATH "$ORIGIN/../lib")
+    set(PLATFORM_LINK_FLAGS "-Wl,--disable-new-dtags")
+endif()
+
+
 #######################################
 # Build all tests in first categories #
 #######################################
@@ -71,10 +86,9 @@ macro(build_unit_test test_name)
     set_target_properties(
         ${test_name}
         PROPERTIES
-        INSTALL_RPATH
-        "$ORIGIN/../lib"
+        INSTALL_RPATH "${PLATFORM_RPATH}"
         INSTALL_RPATH_USE_LINK_PATH TRUE
-        LINK_FLAGS "-Wl,--disable-new-dtags")
+        LINK_FLAGS "${PLATFORM_LINK_FLAGS}")
     gtest_discover_tests(${test_name})
 endmacro()
 
@@ -89,10 +103,9 @@ macro(build_manual_test test_name other_deps)
     set_target_properties(
         ${test_name}
         PROPERTIES
-        INSTALL_RPATH
-        "$ORIGIN/../lib"
+        INSTALL_RPATH "${PLATFORM_RPATH}"
         INSTALL_RPATH_USE_LINK_PATH TRUE
-        LINK_FLAGS "-Wl,--disable-new-dtags")
+        LINK_FLAGS "${PLATFORM_LINK_FLAGS}")
 endmacro()
 
 build_unit_test(ut_channel_and_task)
