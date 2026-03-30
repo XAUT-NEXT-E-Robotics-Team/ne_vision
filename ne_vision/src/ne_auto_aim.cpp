@@ -218,8 +218,8 @@ void NeAutoAim::setupTasks()
   task_objs_.tracker_3d_sPtr_ = std::make_shared<NeTracker3D>("tracker_3D");
   tasks_.tracker_3d_uPtr_ =
       std::make_unique<NeTask>(task_objs_.tracker_3d_sPtr_->GetName(),
-                               NeTaskType_e::WAIT_FOR_INTERVAL,
-                               10ms,
+                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
+                               NV_CHANNELS.armor3d_sPtr(),
                                task_objs_.tracker_3d_sPtr_.get(),
                                &NeTracker3D::Track);
 

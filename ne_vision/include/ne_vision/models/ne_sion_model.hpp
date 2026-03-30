@@ -47,10 +47,14 @@
 
 #pragma once
 
+#include <array>
+#include <chrono>
+#include <vector>
+
+#include "Eigen/Dense"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/utils/ne_math.hpp"
-#include <Eigen/src/Core/Matrix.h>
 
 namespace ne_vision
 {
@@ -157,10 +161,10 @@ public:
   ~NeSionModel() = default;
 
   // 考虑加速度的预测
-  void Predict(const interfaces::NeImuData_t& imu_data);
+  void Predict(const interfaces::NeImuData_t& imu_data, const double dt);
 
   // 不考虑加速度的预测
-  void Predict();
+  void Predict(const double dt);
 
   // 更新状态，输入3D装甲数据
   void Update(const interfaces::NeArmors3D_t& armors);
@@ -170,12 +174,46 @@ public:
                    double                         b_ds,
                    std::vector<Eigen::Vector3d>&  all_pred_armors);
 
-  NeSionState_t GetState() const { return esikf_data_.x; }
+  NeSionState_t GetState() const
+  {
+    return models_.at(current_model_idx_ >= 0 ? current_model_idx_ : 0)
+        .esikf_data.x;
+  }
+
+  Measurement_t Measure(const NePeriodicNumber_t id, const NeSionState_t& x)
+  {
+    Measurement_t z;
+    h(id, x, z);
+    return z;
+  }
+
+  int GetModelIdx() const { return current_model_idx_; }
 
 private:
+  struct ModelStatus_t
+  {
+    struct
+    {
+      NeSionState_t   x;      // 当前名义状态
+      NeSionState_t   x_pred; // 预测状态
+      ErrorStateMat_t eP;     // 误差状态预测协方差
+    } esikf_data;
+
+    double cumulative_cost = 0; // 累积代价，用于多模型评估
+    size_t update_count = 0;    // 更新计数器，用于判断何时进行多模型评估
+  };
+  using Models_t = std::array<ModelStatus_t, 3>;
+
+  /* === 工具函数区，这里的函数只依赖参数和全局状态 === */
+
+  // 这里的私有函数除模型状态信息ModelState_e之外，不应该访问任何成员变量，输入输出都通过参数传递
+  // 以便编写观测器逻辑时，可以把每个函数当作独立的工具函数从而减少耦合
+
   // 预测状态
-  void
-  predictState(double dt, NeSionState_t x, AccDate_t& a, NeSionState_t& x_pred);
+  void predictState(const double        dt,
+                    const NeSionState_t x,
+                    const AccDate_t&    a,
+                    NeSionState_t&      x_pred);
   // 计算过程噪声协方差矩阵Q
   void computeQ(double dt, ErrorStateMat_t& Q);
   // 计算测量噪声协方差矩阵R
@@ -192,19 +230,43 @@ private:
   void computeH(const NePeriodicNumber_t id, const NeSionState_t& x, HJac_t& H);
 
   // ID匹配
+  // cost 是对数似然代价，这里懒得写那么长了
   bool matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
                const Measurement_t&                       z,
-               NePeriodicNumber_t&                        matched_id);
+               const NeSionState_t&                       x_pred,
+               const ErrorStateMat_t&                     eP,
+               NePeriodicNumber_t&                        matched_id,
+               double&                                    cost);
+
+  /* === 统合函数区，这里的函数依赖上面的工具函数 === */
+
+  void initializeModel(const interfaces::NeArmors3D_t& init_armors,
+                       Models_t&                       models);
+
+  // 单词预测更新函数，给定加速度数据、预测时间和模型状态，输出预测状态并更新预测协方差
+  void predictAndUpdateOnce(const interfaces::NeImuData_t& imu_data,
+                            const double                   dt,
+                            const AccDate_t&               a,
+                            ModelStatus_t&                 model);
+
+  // 单次更新函数，给定一组装甲板数据，更新一次状态
+  void updateOnce(const interfaces::NeArmors3D_t& armors, ModelStatus_t& model);
+
+  // 发散判断 TODO: 发散判断
+  bool checkDivergence(const ModelStatus_t& model);
+
+  // 多模型评估和选择函数，输入所有模型状态，修改current_model_idx为当前选用的模型索引
+  // current_model_idx为负数表示当前仍需同时维护多个模型，无法决策出唯一的模型
+  // 在update里调用她
+  void checkMultipleModel(const Models_t& models);
 
   struct
   {
-    NeSionState_t   x;      // 当前名义状态
-    NeSionState_t   x_pred; // 预测状态
-    ErrorStateMat_t eP;     // 误差状态预测协方差
+    double init_R = 0.3;              // 初始半径，单位米
+    double init_omega = 5.0;          // 初始角速度，单位rad/s，正反转初始化
+    double init_max_count_value = 30; // 多少帧后进行评估和选择
+    double init_alpha = 0.4;          // 累积代价的低通滤波系数，越大越重视历史
 
-  } esikf_data_;
-  struct
-  {
     double var_a = 0;
     double var_beta = 0;
     double var_z = 0;
@@ -213,17 +275,14 @@ private:
     size_t max_iter = 5;   // ESIKF 最大更新迭代次数
     double epsilon = 1e-4; // ESIKF 更新迭代收敛阈值
 
-    double additional_dt = 0.02; // 预测时额外增加的时间，单位秒
+    // 低角速度死区
+    // 由于在角速度极低时，半径不可观测，可以设置一个死区，在角速度过低时不更新半径
+    double omega_dead_band = 0.1; // 一定是一个正值
   } params_;
 
-  struct
-  {
-    std::chrono::steady_clock::time_point last_predict_time;
-    std::chrono::steady_clock::time_point last_update_time;
-
-    double predict_dt;
-    double update_dt;
-  } time;
+  // 在正常情况下只有一个模型在运行，初始化时会同时维护多个模型来进行多假设跟踪
+  int      current_model_idx_ = -1;
+  Models_t models_;
 };
 
 } // namespace sion

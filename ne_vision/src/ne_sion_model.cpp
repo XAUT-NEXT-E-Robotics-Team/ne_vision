@@ -41,10 +41,7 @@
 
 #include "ne_vision/debug/ne_vision_visualization.hpp"
 #include <Eigen/src/Core/Matrix.h>
-
-#define _x      esikf_data_.x
-#define _x_pred esikf_data_.x_pred
-#define _eP     esikf_data_.eP
+#include <vector>
 
 #define _I(exp) (decltype(exp)::Identity())
 
@@ -55,6 +52,8 @@ namespace sion
 
 NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
 {
+  // 1. 参数赋值
+
   // 初始化参数和状态信息
   auto param = NV_PARAM["auto_aim"]["tracker_3d"]["sion_model"];
 
@@ -64,50 +63,110 @@ NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
   params_.var_z = param["var_z"].as<double>();       // 高度噪声方差
   params_.var_R = param["var_R"].as<double>();       // 半径噪声方差
 
-  params_.additional_dt =
-      param["additional_dt"].as<double>(); // 预测时额外增加的时间，单位秒
-
-  // 初始化协方差
-  _eP = ErrorStateMat_t::Identity() * 1e-3;
-
-  // 初始化状态
-  if (!init_armors.armors.empty())
-  {
-    _x.p.x() = init_armors.armors[0].t.x();
-    _x.p.y() = init_armors.armors[0].t.y();
-    _x.yaw = math::WrapToPi(init_armors.armors[0].yaw);
-    _x.v.x() = 0;
-    _x.v.y() = 0;
-    _x.R1 = 0.3;
-    _x.R2 = 0.3;
-    _x.z1 = init_armors.armors[0].t.z();
-    _x.z2 = init_armors.armors[0].t.z();
-  }
+  // 2. 首次初始化
+  initializeModel(init_armors, models_);
 }
 
-void NeSionModel::Predict()
+void NeSionModel::Predict(const interfaces::NeImuData_t& imu_data,
+                          const double                   dt)
 {
-  // 不使用加速度先验
+  // 1. 计算加速度
+  AccDate_t a;
+  // a.x() = imu_data.acc.x();
+  // a.y() = imu_data.acc.y();
+  a.x() = 0.0;
+  a.y() = 0.0;
 
-  // 1. 计算dt
-  auto now = std::chrono::steady_clock::now();
-  time.predict_dt =
-      std::chrono::duration<double>(now - time.last_predict_time).count();
-  time.last_predict_time = now;
-
-  // 2. 进行状态预测
-  AccDate_t a = AccDate_t::Zero(); // 不使用加速度先验，设为0
-  predictState(time.predict_dt, _x, a, _x_pred);
-
-  // 3. 更新误差状态预测协方差
-  ErrorStateMat_t Q, F;
-  computeQ(time.predict_dt, Q);
-  computeF(time.predict_dt, F);
-  _eP = F * _eP * F.transpose() + Q;
+  // 2. 根据当前是否已经选定模型来决定是对单个模型进行预测还是对所有模型进行预测
+  if (current_model_idx_ < 0)
+    for (auto& model : models_)
+      predictAndUpdateOnce(imu_data, dt, a, model);
+  else
+    predictAndUpdateOnce(imu_data, dt, a, models_.at(current_model_idx_));
 }
 
 void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
 {
+  // 根据当前是否已经选定模型来决定是对单个模型进行更新还是对所有模型进行更新
+  if (current_model_idx_ < 0)
+    for (auto& model : models_)
+      updateOnce(armors, model);
+  else
+    updateOnce(armors, models_.at(current_model_idx_));
+
+  // 看看是否达到了多模型转单模型的条件
+  checkMultipleModel(models_);
+
+  // TODO: 发散判断并重新初始化
+}
+
+/* === 统合函数区 === */
+
+void NeSionModel::initializeModel(const interfaces::NeArmors3D_t& init_armors,
+                                  Models_t&                       models)
+{
+  if (init_armors.armors.empty())
+  {
+    NV_WARN("No armors observed during model initialization!");
+    return;
+  }
+
+  // 填写状态相同部分
+  models.at(0).esikf_data.x.p.x() = init_armors.armors[0].t.x();
+  models.at(0).esikf_data.x.p.y() = init_armors.armors[0].t.y();
+  models.at(0).esikf_data.x.yaw = math::WrapToPi(init_armors.armors[0].yaw);
+  models.at(0).esikf_data.x.v.x() = 0;
+  models.at(0).esikf_data.x.v.y() = 0;
+  models.at(0).esikf_data.x.R1 = params_.init_R;
+  models.at(0).esikf_data.x.R2 = params_.init_R;
+  models.at(0).esikf_data.x.z1 = init_armors.armors[0].t.z();
+  models.at(0).esikf_data.x.z2 = init_armors.armors[0].t.z();
+
+  // 初始化相同的协方差
+  models.at(0).esikf_data.eP = ErrorStateMat_t::Identity() * 1e-3;
+
+  // 初始化评估信息
+  models.at(0).cumulative_cost = 0;
+  models.at(0).update_count = 0;
+
+  models.at(1) = models.at(0);
+  models.at(2) = models.at(0);
+
+  models.at(0).esikf_data.x.omega = 0;
+  models.at(1).esikf_data.x.omega = params_.init_omega;
+  models.at(2).esikf_data.x.omega = -params_.init_omega;
+
+  current_model_idx_ = -1; // 重置为未选定状态
+}
+
+// 针对特定的status进行一次预测更新
+void NeSionModel::predictAndUpdateOnce(const interfaces::NeImuData_t& imu_data,
+                                       const double                   dt,
+                                       const AccDate_t&               a,
+                                       ModelStatus_t&                 model)
+{
+  auto& x = model.esikf_data.x;
+  auto& x_pred = model.esikf_data.x_pred;
+  auto& eP = model.esikf_data.eP;
+
+  // 1. 进行状态预测
+  predictState(dt, x, a, x_pred);
+
+  // 2. 更新误差状态预测协方差
+  ErrorStateMat_t Q, F;
+  computeQ(dt, Q);
+  computeF(dt, F);
+  eP = F * eP * F.transpose() + Q;
+}
+
+// 针对特定的模型，给定一组装甲板数据，更新一次状态
+void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
+                             ModelStatus_t&                  model)
+{
+  auto& x = model.esikf_data.x;
+  auto& x_pred = model.esikf_data.x_pred;
+  auto& eP = model.esikf_data.eP;
+
   auto update_one = [&](const interfaces::NeArmors3D_t::Armor3D_t& armor) {
     // 1. 处理观测值和观测协方差
     Measurement_t z;
@@ -119,38 +178,66 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
 
     // 2. 处理ID，判断属于车的哪个装甲板
     NePeriodicNumber_t matched_id;
-    if (!matchID(armor, z, matched_id))
+    double             cost; // 对数似然代价
+    if (!matchID(armor, z, x_pred, eP, matched_id, cost))
     {
       // 如果没有成功匹配就放弃本轮更新
       return;
     }
 
-    // 3. 迭代更新
+    // 3. 计算累计代价，用于进行多模型评估，低通滤波累计
+    if (model.update_count == 0)
+      model.cumulative_cost = cost;
+    else
+      model.cumulative_cost =
+          params_.init_alpha * model.cumulative_cost +
+          (1 - params_.init_alpha) * cost; // 低通滤波累计代价
+    model.update_count++;
+
+    // 4. 迭代更新
     HJac_t H;
     K_t    K;
-    auto   x_pred_start = _x_pred; // 最初的先验
+    auto   x_pred_start = x_pred; // 最初的先验
     for (size_t iter = 0; iter < params_.max_iter; ++iter)
     {
       // 1 计算测量预测值
       Measurement_t z_pred;
-      h(matched_id, _x_pred, z_pred);
+      h(matched_id, x_pred, z_pred);
 
       // 2 计算测量残差
       Measurement_t r = z - z_pred;
       r(MEASURE_YAW_IDX) = math::WrapToPi(r(MEASURE_YAW_IDX));
 
       // 3 计算测量雅克比
-      computeH(matched_id, _x_pred, H);
+      computeH(matched_id, x_pred, H);
 
       // 4 计算卡尔曼增益
       // 相比于文档，这里使用的是其等价形式，可以推出来。这里计算速度更快
-      auto S = H * _eP * H.transpose() + R;  // 预测测量协方差
-      K = _eP * H.transpose() * S.inverse(); // 卡尔曼增益
+      auto S = H * eP * H.transpose() + R;  // 预测测量协方差
+      K = eP * H.transpose() * S.inverse(); // 卡尔曼增益
 
-      // 5 更新名义状态
-      auto ex = K * r - (_I(K * H) - K * H) *
-                            (_x_pred - x_pred_start); // 误差状态更新量
-      _x_pred += ex;                                  // 更新名义状态
+      // 5. 角速度死区处理，如果角速度很小，就不更新半径
+      // TODO: 修改current model 导致的角度锁死，这里是临时处理
+#if 1
+      if (std::abs(x_pred.omega) < params_.omega_dead_band ||
+          current_model_idx_ < 0)
+      {
+        K(R1_IDX, MEASURE_X_IDX) = 0;
+        K(R1_IDX, MEASURE_Y_IDX) = 0;
+        K(R1_IDX, MEASURE_Z_IDX) = 0;
+        K(R1_IDX, MEASURE_YAW_IDX) = 0;
+
+        K(R2_IDX, MEASURE_X_IDX) = 0;
+        K(R2_IDX, MEASURE_Y_IDX) = 0;
+        K(R2_IDX, MEASURE_Z_IDX) = 0;
+        K(R2_IDX, MEASURE_YAW_IDX) = 0;
+      }
+#endif
+
+      // 6 更新名义状态
+      auto ex = K * r -
+                (_I(K * H) - K * H) * (x_pred - x_pred_start); // 误差状态更新量
+      x_pred += ex;                                            // 更新名义状态
       if (ex.norm() < params_.epsilon)
       {
         // 如果更新量足够小就认为收敛了，提前退出迭代
@@ -159,8 +246,8 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
     }
 
     // 4. 更新状态和协方差
-    _x = _x_pred;
-    _eP = (_I(K * H) - K * H) * _eP;
+    x = x_pred;
+    eP = (_I(K * H) - K * H) * eP;
 
     // nv_rec_g().log("car_yaw", rerun::Scalars(_x.yaw));
     // nv_rec_g().log("car_R1", rerun::Scalars(_x.R1));
@@ -199,59 +286,99 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
   }
 }
 
+// 判断当前应该跟踪多个模型还是模型，应该跟踪哪一个
+void NeSionModel::checkMultipleModel(const Models_t& models)
+{
+  if (current_model_idx_ < 0)
+  {
+    // 1. 检查有效帧数是否达标 -> 至少有一个模型的更新帧数达标了
+    if (std::none_of(
+            models.begin(), models.end(), [&](const ModelStatus_t& model) {
+              return model.update_count >= params_.init_max_count_value;
+            }))
+    {
+      // 如果没有任何一个模型的更新帧数达标，就继续保持多模型状态
+      return;
+    }
+
+    // TODO: 这里有一个安全隐患：就是如果观测很差很差，导致完全没有任何有效观测
+    //       有可能寄掉
+
+    // 2. 提取并排序
+    std::vector<std::pair<double, int>> cost_ranking = {
+        {models.at(0).cumulative_cost, 0},
+        {models.at(1).cumulative_cost, 1},
+        {models.at(2).cumulative_cost, 2},
+    };
+    std::sort(cost_ranking.begin(), cost_ranking.end());
+
+    int best_idx = cost_ranking.at(0).second;
+
+    current_model_idx_ = best_idx;
+
+    NV_DEBUG("Model {}, M1{} M2{} M3{}",
+             best_idx,
+             cost_ranking.at(0).first,
+             cost_ranking.at(1).first,
+             cost_ranking.at(2).first);
+  }
+}
+
+/* === 工具函数区 === */
+
 Eigen::Vector3d
 NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
                               double                         b_dt,
                               std::vector<Eigen::Vector3d>&  all_pred_armors)
 {
-  // 预测和选板
+  // // 预测和选板
 
-  // 1. 预测固定时间
-  AccDate_t a;
+  // // 1. 预测固定时间
+  // AccDate_t a;
 
-  double total_dt = params_.additional_dt + b_dt;
+  // double total_dt = params_.additional_dt + b_dt;
 
-  predictState(total_dt, _x, a, _x_pred);
+  // predictState(total_dt, _x, a, _x_pred);
 
-  // 2. 选板
-  //    我们选择最正对云台的一块装甲板
+  // // 2. 选板
+  // //    我们选择最正对云台的一块装甲板
 
-  double min_yaw_diff = std::numeric_limits<double>::max();
+  // double min_yaw_diff = std::numeric_limits<double>::max();
 
-  Eigen::Vector3d aim_point = {_x_pred.p.x(), _x_pred.p.y(), 0};
+  // Eigen::Vector3d aim_point = {_x_pred.p.x(), _x_pred.p.y(), 0};
 
-  all_pred_armors.clear();
-  for (int id = 0; id < 4; ++id)
-  {
-    Measurement_t z_pred;
-    h(id, _x_pred, z_pred);
+  // all_pred_armors.clear();
+  // for (int id = 0; id < 4; ++id)
+  // {
+  //   Measurement_t z_pred;
+  //   h(id, _x_pred, z_pred);
 
-    double yaw_a = z_pred(MEASURE_YAW_IDX);
-    double yaw_b = math::QuaternionToYaw(imu_data.quat);
+  //   double yaw_a = z_pred(MEASURE_YAW_IDX);
+  //   double yaw_b = math::QuaternionToYaw(imu_data.quat);
 
-    double yaw_diff = math::WrapToPi(yaw_a - yaw_b);
+  //   double yaw_diff = math::WrapToPi(yaw_a - yaw_b);
 
-    if (yaw_diff < min_yaw_diff)
-    {
-      min_yaw_diff = yaw_diff;
-      aim_point.x() = z_pred(MEASURE_X_IDX);
-      aim_point.y() = z_pred(MEASURE_Y_IDX);
-      aim_point.z() = z_pred(MEASURE_Z_IDX);
-    }
-    all_pred_armors.emplace_back(
-        z_pred(MEASURE_X_IDX), z_pred(MEASURE_Y_IDX), z_pred(MEASURE_Z_IDX));
-  }
+  //   if (yaw_diff < min_yaw_diff)
+  //   {
+  //     min_yaw_diff = yaw_diff;
+  //     aim_point.x() = z_pred(MEASURE_X_IDX);
+  //     aim_point.y() = z_pred(MEASURE_Y_IDX);
+  //     aim_point.z() = z_pred(MEASURE_Z_IDX);
+  //   }
+  //   all_pred_armors.emplace_back(
+  //       z_pred(MEASURE_X_IDX), z_pred(MEASURE_Y_IDX), z_pred(MEASURE_Z_IDX));
+  // }
 
-  // NV_DEBUG("{} {} {}", aim_point.x(), aim_point.y(), aim_point.z());
+  // // NV_DEBUG("{} {} {}", aim_point.x(), aim_point.y(), aim_point.z());
 
-  return aim_point;
+  return {};
 }
 
 // 名义状态预测函数
-void NeSionModel::predictState(double         dt,
-                               NeSionState_t  x,
-                               AccDate_t&     a,
-                               NeSionState_t& x_pred)
+void NeSionModel::predictState(const double        dt,
+                               const NeSionState_t x,
+                               const AccDate_t&    a,
+                               NeSionState_t&      x_pred)
 {
   // 位置预测：p' = p + v*dt + 0.5*a*dt^2
   x_pred.p = x.p + x.v * dt + 0.5 * a * dt * dt;
@@ -380,10 +507,10 @@ void NeSionModel::computeH(const NePeriodicNumber_t id,
   H = HJac_t::Zero();
 
   // 1. 根据不同装甲板编号提取对应的参数和索引
-  double yaw_offset = -id * M_PI / 2.0;        // 根据ID计算yaw偏移
-  int r_idx = (id % 2 == 0) ? R1_IDX : R2_IDX; // 根据ID选择R1或R2的索引
-  int z_idx = (id % 2 == 0) ? Z1_IDX : Z2_IDX; // 根据ID选择z1或z2的索引
-  double R = (id % 2 == 0) ? x.R1 : x.R2;      // 根据ID选择R1或R2的值
+  double yaw_offset = -id * M_PI / 2.0;           // 根据ID计算yaw偏移
+  int    r_idx = (id % 2 == 0) ? R1_IDX : R2_IDX; // 根据ID选择R1或R2的索引
+  int    z_idx = (id % 2 == 0) ? Z1_IDX : Z2_IDX; // 根据ID选择z1或z2的索引
+  double R = (id % 2 == 0) ? x.R1 : x.R2;         // 根据ID选择R1或R2的值
 
   // 2. 提前计算三角函数
   double theta_total = x.yaw + yaw_offset;
@@ -413,7 +540,10 @@ void NeSionModel::computeH(const NePeriodicNumber_t id,
 // 宁可错杀一千，也不放过一个，不要让错误的匹配污染观测器
 bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
                           const Measurement_t&                       z,
-                          NePeriodicNumber_t&                        matched_id)
+                          const NeSionState_t&                       x_pred,
+                          const ErrorStateMat_t&                     eP,
+                          NePeriodicNumber_t&                        matched_id,
+                          double&                                    cost)
 {
   // 来自julyfun的思路，让我们把整车模型展开来看，看看这个装甲板花落谁家
 
@@ -421,11 +551,11 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
   auto& R = armor.cov;
 
   // 计算马氏距离
-  auto compute_mahalanobis_distance =
-      [&](const NePeriodicNumber_t id) -> double {
+  auto compute_mahalanobis_distance = [&](const NePeriodicNumber_t id,
+                                          double& tmp_cost) -> double {
     // 1. 获取从预测值得到的观测值
     Measurement_t z_pred;
-    h(id, _x_pred, z_pred);
+    h(id, x_pred, z_pred);
 
     // 2. 计算残差
     Eigen::Vector4d residual = z - z_pred;
@@ -433,45 +563,45 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
 
     // 3. 获取新息协方差S
     HJac_t H;
-    computeH(id, _x_pred, H);
-    Eigen::Matrix4d S = H * _eP * H.transpose() + R;
+    computeH(id, x_pred, H);
+    Eigen::Matrix4d S = H * eP * H.transpose() + R;
 
     // 4. 计算马氏距离
     double mahalanobis_distance =
         residual.transpose() * S.llt().solve(residual);
 
+    // 5. 输出S的行列式（用于外部逻辑用来决定该模型是否可靠）
+    tmp_cost = S.determinant();
+    tmp_cost = tmp_cost > 0 ? std::log(tmp_cost) : 0.0;
+    tmp_cost += mahalanobis_distance;
+
     return mahalanobis_distance;
   };
 
   double min_mahalanobis_distance = std::numeric_limits<double>::max();
+  double best_cost = std::numeric_limits<double>::max();
   int    best_id = -1;
   for (int id = 0; id < 4; ++id)
   {
-    double distance = compute_mahalanobis_distance(id);
+    double distance = compute_mahalanobis_distance(id, cost);
     // TODO: 这里加入阈值判断
     // if (distance >= 500)
     //   continue;
     if (distance < min_mahalanobis_distance)
     {
       min_mahalanobis_distance = distance;
+      best_cost = cost;
       best_id = id;
     }
-
-    // NV_INFO("ID:{} Mahalanobis Distance: {} Z_YAW: {}",
-    //         id,
-    //         distance,
-    //         math::WrapToPi(z(MEASURE_YAW_IDX)));
   }
 
   if (best_id == -1)
   {
-    // NV_INFO("NOOOO {}", min_mahalanobis_distance);
     return false;
   }
 
+  cost = best_cost;
   matched_id = best_id;
-
-  // NV_INFO("ID:{}", matched_id);
 
   return true;
 }

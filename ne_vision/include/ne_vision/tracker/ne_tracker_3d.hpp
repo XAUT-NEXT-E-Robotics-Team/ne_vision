@@ -35,6 +35,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 
 #include "ne_vision/utils/ne_channel.hpp"
@@ -76,8 +77,10 @@ private:
 
   std::string current_tracking_aim_ = "NULL";
 
-  // 上次接收的装甲板时间戳，用于判断当前收到的装甲板是否是新的
-  // 如果不是最新的，进入仅预测模式
+  // 上次识别到装甲板的时间点
+  std::chrono::steady_clock::time_point last_detected_stamp_;
+
+  // 上次拍摄的时间点
   std::chrono::steady_clock::time_point last_cap_stamp_;
 
   // 这是一个保存所有模型的联合体，如果有新的模型，要放进去
@@ -85,7 +88,7 @@ private:
 
   struct
   {
-    double lose_time = 0.5; // 认为丢失的时间阈值，单位秒 TODO: 写到参数里边去
+    double idle_time = 0.5; // 认为空闲的时间阈值，单位秒 TODO: 写到参数里边去
   } param_;
 };
 

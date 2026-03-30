@@ -109,7 +109,7 @@ void NeVisionVisualization::Draw()
     debug_frame.frame = frame;
     channels_.debug_frame_c_sPtr->Transmit(debug_frame);
 
-    // nv_rec_g().log(name_ + "_debug_frame", NV_RERUN_CV_IMAGE(frame));
+    NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
   }
 }
 
