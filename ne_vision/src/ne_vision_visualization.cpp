@@ -42,6 +42,7 @@
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/utils/ne_param.hpp"
+#include "ne_vision/utils/ne_code_profiler.hpp"
 
 #define VIS_QUEUE_MAX_SIZE 100
 
@@ -108,6 +109,10 @@ void NeVisionVisualization::Draw()
 
     debug_frame.frame = frame;
     channels_.debug_frame_c_sPtr->Transmit(debug_frame);
+
+    NV_DEBUG("fps: {}",
+             NV_PROFILE_INSTANCE("detector")->GetResult().GetCurrentPeriodS() *
+                 1000);
 
     NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
   }
