@@ -1,14 +1,15 @@
 auto_aim:
   detector:
-    model_path: "/Users/ziyu/codes/ne_vision/install/share/model/0526"
+    # model_path: "/Users/ziyu/codes/ne_vision/install/share/model/0526"
+    model_path: "/home/ziyu/ziyu/codes/ne_vision/install/share/model/0526"
   tracker_2d:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2
     detector_variance: 3.0
   tracker_3d:
     sion_model:
-      var_a: 0.01
-      var_beta: 10
+      var_a: 10.0
+      var_beta: 50.0
       var_z: 0.01
       var_R: 0.000000001
       additional_dt: -0.1

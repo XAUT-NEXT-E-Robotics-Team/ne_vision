@@ -1,16 +1,16 @@
 ///////////////////////////////////////////////////////////
 //                                                       //
-//                        .                 .:-:         //
-//                       :-:              :-::           //
+//                        .                .:-:          //
+//                        :-:              :-::          //
 //                      -----          .:---.            //
 //                    .-------.     .:-----:             //
 //                   :---------. .:-------.              //
 //                  :--------------------.               //
-//                ---------------------                  //
-//               .-------:. :---------:                  //
-//              :-----:.     .-------.                   //
-//             .:---:         .-----.                    //
-//            .:-:.             :-:                      //
+//                 ---------------------                 //
+//                .-------:. :---------:                 //
+//               :-----:.     .-------.                  //
+//              .:---:         .-----.                   //
+//            .:-:.              :-:                     //
 //          .-:.                 .                       //
 //         .:                                            //
 //                                                       //
@@ -49,10 +49,15 @@
 #include <termios.h>
 #include <IOKit/serial/ioss.h> // macOS ：用于设置自定义波特率
 #else
+#include <termios.h> // 先包含标准库
+// 解决 Linux 下内核头文件与标准库头文件的冲突
 #define termios asmtermios
+#define winsize asmwinsize
+#define termio  asmtermio
 #include <asm/termios.h>
 #undef termios
-#include <termios.h>
+#undef winsize
+#undef termio
 #endif
 
 // macOS 不支持 CMSPAR(Mark/Space Parity)，这里做宏兼容兜底
@@ -62,10 +67,6 @@
 
 namespace SerialToNode
 {
-#if defined(__APPLE__)
-#else
-extern "C" int ioctl(int d, int request, ...);
-#endif
 
 NePort::NePort(std::shared_ptr<SerialConfig> SerialConfig_ptr)
 {

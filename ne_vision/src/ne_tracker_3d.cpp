@@ -6,6 +6,7 @@
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/ne_channals.hpp"
+#include "rerun/archetypes/scalars.hpp"
 #include <chrono>
 #include <string>
 
@@ -127,6 +128,8 @@ DO_NORMAL_TRACKING:
       NV_REC_LOG("sion_model_R1", rerun::Scalars(state.R1));
       NV_REC_LOG("sion_model_R2", rerun::Scalars(state.R2));
       NV_REC_LOG("sion_model_m_id", rerun::Scalars(sion.GetModelIdx()));
+      NV_REC_LOG("sion_model_dis", rerun::Scalars(state.p.norm()));
+      NV_REC_LOG("sion_model_vx", rerun::Scalars(state.omega));
     }
     catch (std::bad_variant_access&)
     {

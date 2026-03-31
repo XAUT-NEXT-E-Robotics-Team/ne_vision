@@ -46,8 +46,8 @@
 #include "real/ne_hikcam.hpp"
 #include <opencv2/highgui.hpp>
 #include "ne_vision/serial/ne_serial_driver.hpp"
-#include <Eigen/Dense>           
-#include <Eigen/Geometry> 
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
 using namespace ne_vision;
 
 int main()
@@ -64,26 +64,26 @@ int main()
   cv::Mat   frame;
   NeAutoAim auto_aim;
   HikCam    hik_cam;
-  ne_serial::NeSerialDriver driver("/dev/ttyACM0",200000,false);
+  // ne_serial::NeSerialDriver driver("/dev/ttyACM0",200000,false);
   std::mutex serial_mtx;
-  float gimbal_pitch = 0.0f;
-  float gimbal_yaw = 0.0f;
-  float muzzle_v = 25.0f;
-  char our_color = '\0';
-  driver.onGimbalState([&](const ne_serial::GimbalState& gimbal_state)
-  {
-     std::lock_guard<std::mutex> lk(serial_mtx);
-     gimbal_pitch = gimbal_state.pitch;
-     gimbal_yaw = gimbal_state.yaw;
-     muzzle_v = gimbal_state.muzzle_v;
-     our_color = gimbal_state.our_color;
-  });
-  if(!driver.start())
-  {
-    printf("Failed to open serial driver");
-    return -1;
-  }
-  
+  float      gimbal_pitch = 0.0f;
+  float      gimbal_yaw = 0.0f;
+  float      muzzle_v = 25.0f;
+  char       our_color = '\0';
+  // driver.onGimbalState([&](const ne_serial::GimbalState& gimbal_state)
+  // {
+  //    std::lock_guard<std::mutex> lk(serial_mtx);
+  //    gimbal_pitch = gimbal_state.pitch;
+  //    gimbal_yaw = gimbal_state.yaw;
+  //    muzzle_v = gimbal_state.muzzle_v;
+  //    our_color = gimbal_state.our_color;
+  // });
+  // if(!driver.start())
+  // {
+  //   printf("Failed to open serial driver");
+  //   return -1;
+  // }
+
   auto_aim.Start(config_path);
   hik_cam.StartDevice(0);
   hik_cam.SetResolution(1440, 1080);
@@ -97,17 +97,20 @@ int main()
   {
 
     hik_cam.GetMat(frame);
-    char tmp_color;
+    char  tmp_color;
     float tmp_muzzle_v;
     {
       std::lock_guard<std::mutex> lk(serial_mtx);
       tmp_color = our_color;
-      tmp_muzzle_v = muzzle_v; 
+      tmp_muzzle_v = muzzle_v;
     }
-    
-    auto_aim.UpdateFrame(frame, tmp_color); // 接收颜色
+
+    auto_aim.UpdateFrame(frame, 'B'); // 接收颜色
     auto_aim.AutoAim();
-    auto_aim.UpdateImu(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(), 0.0);
+    auto_aim.UpdateImu(Eigen::Vector3d::Zero(),
+                       Eigen::Vector3d::Zero(),
+                       Eigen::Quaterniond::Identity(),
+                       0.0);
 
     double aim_yaw = 0;
     double aim_pitch = 0;
@@ -117,11 +120,11 @@ int main()
     ne_orien.state = 0;
     SET_AUTO_AIM_STATE_ENABLE(ne_orien.state);
     if (tmp_color == 'R')
-    SET_AUTO_AIM_STATE_WE_ARE_RED(ne_orien.state);
+      SET_AUTO_AIM_STATE_WE_ARE_RED(ne_orien.state);
     ne_orien.pitch = static_cast<float>(aim_pitch);
-    ne_orien.yaw   = static_cast<float>(aim_yaw);
-    ne_orien.fire  = 0xff; // TODO: 根据自瞄置信度决定是否开火
-    driver.sendGimbalOrientation(ne_orien);
+    ne_orien.yaw = static_cast<float>(aim_yaw);
+    ne_orien.fire = 0xff; // TODO: 根据自瞄置信度决定是否开火
+    // driver.sendGimbalOrientation(ne_orien);
 
     cv::Mat re;
     auto_aim.DebugFrame(re);
@@ -135,6 +138,6 @@ int main()
       break;
     }
   }
-  driver.stop();
+  // driver.stop();
   return 0;
 }

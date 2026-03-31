@@ -10,7 +10,7 @@
 #include "rerun.hpp"
 #include "opencv2/opencv.hpp"
 
-#include "ne_Vision/utils/ne_log.hpp"
+#include "ne_vision/utils/ne_log.hpp"
 
 // 配置宏
 #define NV_RERUN_DEFAULT_APP_NAME "ne_vision_debug"
