@@ -46,6 +46,8 @@
 #include "ne_vision/interfaces/ne_debug_frame.hpp"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
 
+#include "ne_vision/debug/ne_data_scope.hpp"
+
 namespace ne_vision
 {
 
@@ -139,6 +141,8 @@ private:
     Eigen::Matrix3d             camera_matrix_eigen_;
     Eigen::Matrix<double, 5, 1> dist_coeffs_eigen_;
   } pro_param_;
+
+  NeDataScopeManager scope_mng_;
 
   std::string name_;
   VisPack_t   vis_pack_;

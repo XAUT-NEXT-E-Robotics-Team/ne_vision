@@ -110,9 +110,10 @@ void NeVisionVisualization::Draw()
     debug_frame.frame = frame;
     channels_.debug_frame_c_sPtr->Transmit(debug_frame);
 
-    NV_DEBUG("fps: {}",
-             NV_PROFILE_INSTANCE("detector")->GetResult().GetCurrentPeriodS() *
-                 1000);
+    // NV_DEBUG("fps: {}",
+    //          NV_PROFILE_INSTANCE("detector")->GetResult().GetCurrentPeriodS()
+    //          *
+    //              1000);
 
     NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
   }
@@ -374,7 +375,7 @@ void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
     }
   }
 
-  for (const auto& each : vis_pack_.aim_traj.all_armors)
+  for (const auto& each : vis_pack_.aim_traj.debug.all_armors)
   {
     cv::Point2d projected_pt = projectToImagePlane(each);
     if (projected_pt.x >= 0 && projected_pt.y >= 0)
@@ -382,6 +383,15 @@ void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
       cv::circle(frame, projected_pt, 3, cv::Scalar(0, 255, 255), -1);
     }
   }
+  scope_mng_.AddText("m_dis",
+                     cv::format("%.2f", vis_pack_.aim_traj.debug.model_dis));
+  scope_mng_.AddText("m_omega",
+                     cv::format("%.2f", vis_pack_.aim_traj.debug.model_omega));
+  scope_mng_.AddPoint("m_yaw",
+                      vis_pack_.aim_traj.cap_stamp,
+                      vis_pack_.aim_traj.debug.model_yaw);
+
+  scope_mng_.DrawAll(frame);
 }
 
 } // namespace ne_vision

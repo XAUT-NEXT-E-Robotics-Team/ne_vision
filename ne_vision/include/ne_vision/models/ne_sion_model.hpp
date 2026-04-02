@@ -169,6 +169,9 @@ public:
   // 更新状态，输入3D装甲数据
   void Update(const interfaces::NeArmors3D_t& armors);
 
+  // 调试信息打印函数
+  void DebugInfo();
+
   Eigen::Vector3d
   PredictAndChoose(const interfaces::NeImuData_t& imu_data,
                    double                         b_ds,
@@ -189,6 +192,20 @@ public:
 
   int GetModelIdx() const { return current_model_idx_; }
 
+  double GetModelCurrentVarA() const
+  {
+    return models_.at(current_model_idx_ >= 0 ? current_model_idx_ : 0)
+        .current_var_a;
+  }
+
+  double GetModelCurrentVarBeta() const
+  {
+    return models_.at(current_model_idx_ >= 0 ? current_model_idx_ : 0)
+        .current_var_beta;
+  }
+
+  static std::string GetName() { return "SionModel"; }
+
 private:
   struct ModelStatus_t
   {
@@ -201,6 +218,17 @@ private:
 
     double cumulative_cost = 0; // 累积代价，用于多模型评估
     size_t update_count = 0;    // 更新计数器，用于判断何时进行多模型评估
+
+    double current_var_a = 1;    // 当前自适应加速度噪声方差
+    double current_var_beta = 1; // 当前自适应角加速度噪声方差
+    double var_a_base = 0;
+    double var_beta_base = 0;
+
+    int  divergence_count = 0; // 连续发散计数器
+    bool is_diverged = false;  // 是否发散的标志
+
+    double last_nis = 0;
+    double last_dis = 0;
   };
   using Models_t = std::array<ModelStatus_t, 3>;
 
@@ -215,7 +243,7 @@ private:
                     const AccDate_t&    a,
                     NeSionState_t&      x_pred);
   // 计算过程噪声协方差矩阵Q
-  void computeQ(double dt, ErrorStateMat_t& Q);
+  void computeQ(double dt, double var_a, double var_beta, ErrorStateMat_t& Q);
   // 计算测量噪声协方差矩阵R
   void computeR(MeasurementNoiseCov_t& R);
   // 计算预测雅克比（误差状态）
@@ -236,7 +264,8 @@ private:
                const NeSionState_t&                       x_pred,
                const ErrorStateMat_t&                     eP,
                NePeriodicNumber_t&                        matched_id,
-               double&                                    cost);
+               double&                                    cost,
+               double&                                    nis);
 
   /* === 统合函数区，这里的函数依赖上面的工具函数 === */
 
@@ -250,25 +279,111 @@ private:
                             ModelStatus_t&                 model);
 
   // 单次更新函数，给定一组装甲板数据，更新一次状态
-  void updateOnce(const interfaces::NeArmors3D_t& armors, ModelStatus_t& model);
+  // model_is_only_one表示当前是否只有一个模型在跑，表示是否是多模型评估模式
+  void updateOnce(const interfaces::NeArmors3D_t& armors,
+                  ModelStatus_t&                  model,
+                  bool                            model_is_only_one);
 
   // 发散判断 TODO: 发散判断
-  bool checkDivergence(const ModelStatus_t& model);
+  void adaptiveQAndDivergenceCheck(ModelStatus_t& model, double nis);
 
   // 多模型评估和选择函数，输入所有模型状态，修改current_model_idx为当前选用的模型索引
   // current_model_idx为负数表示当前仍需同时维护多个模型，无法决策出唯一的模型
   // 在update里调用她
   void checkMultipleModel(const Models_t& models);
 
-  struct
+  struct Params_t
   {
+    void LoadParam()
+    {
+      auto param = NV_PARAM["auto_aim"]["tracker_3d"]["sion_model"];
+
+      // 初始参数
+      init_R = param["init_R"].as<double>();
+      init_omega = param["init_omega"].as<double>();
+      init_max_count_value = param["init_max_count_value"].as<double>();
+      init_alpha = param["init_alpha"].as<double>();
+
+      // ESIKF参数
+      var_a_min = param["var_a_min"].as<double>();
+      var_a_max = param["var_a_max"].as<double>();
+      var_beta_min = param["var_beta_min"].as<double>();
+      var_beta_max = param["var_beta_max"].as<double>();
+      q_scale_rate = param["q_scale_rate"].as<double>();
+      var_z = param["var_z"].as<double>();
+      var_R = param["var_R"].as<double>();
+      omega_dead_band = param["omega_dead_band"].as<double>();
+
+      // 发散检测参数
+      divergence_threshold = param["divergence_threshold"].as<double>();
+      max_divergence_count = param["max_divergence_count"].as<int>();
+      max_R = param["max_R"].as<double>();
+      min_R = param["min_R"].as<double>();
+      max_omega = param["max_omega"].as<double>();
+
+      // 调试参数
+      debug.enable = param["debug"]["enable"].as<bool>();
+      debug.yaw = param["debug"]["yaw"].as<bool>();
+      debug.omega = param["debug"]["omega"].as<bool>();
+      debug.R = param["debug"]["R"].as<bool>();
+      debug.Q_var = param["debug"]["Q_var"].as<bool>();
+      debug.nis = param["debug"]["nis"].as<bool>();
+      debug.dis = param["debug"]["dis"].as<bool>();
+      debug.model_idx = param["debug"]["model_idx"].as<bool>();
+
+      // 参数合理性检查
+      if (init_R <= 0)
+      {
+        NV_ERROR("Initial radius should be positive! Current value: {}",
+                 init_R);
+        abort();
+      }
+      if (init_max_count_value <= 0)
+      {
+        NV_ERROR(
+            "Initial max count value should be positive! Current value: {}",
+            init_max_count_value);
+        abort();
+      }
+      if (init_alpha < 0 || init_alpha > 1)
+      {
+        NV_ERROR("Initial alpha should be in [0, 1]! Current value: {}",
+                 init_alpha);
+        abort();
+      }
+      if (var_a_min <= 0 || var_a_max <= 0 || var_a_min >= var_a_max)
+      {
+        NV_ERROR("var_a should be positive and var_a_min should be less than "
+                 "var_a_max! Current values: var_a_min={}, var_a_max={}",
+                 var_a_min,
+                 var_a_max);
+        abort();
+      }
+    }
+
     double init_R = 0.3;              // 初始半径，单位米
     double init_omega = 5.0;          // 初始角速度，单位rad/s，正反转初始化
-    double init_max_count_value = 30; // 多少帧后进行评估和选择
+    double init_max_count_value = 15; // 多少帧后进行评估和选择
     double init_alpha = 0.4;          // 累积代价的低通滤波系数，越大越重视历史
 
-    double var_a = 0;
-    double var_beta = 0;
+    /* === ESIKF === */
+
+    // 自适应加速度噪声阈值参数
+    // 需要在高速变速运动时调整min的值
+    // 需要在低速，匀速或静止时调整max的值
+    // 如果在高速变速或静止时计算得到的实时var并未到达min或max的值
+    // 可以通过调整scale_rate来调整自适应var的变化率，增大它可以让自适应调大或调小更灵活
+    // 默认为中值
+    double var_a_min = 1;
+    double var_a_max = 100;
+
+    // 同理
+    // 默认为中值
+    double var_beta_min = 1;
+    double var_beta_max = 10;
+
+    double q_scale_rate = 0.1;
+
     double var_z = 0;
     double var_R = 0;
 
@@ -278,6 +393,33 @@ private:
     // 低角速度死区
     // 由于在角速度极低时，半径不可观测，可以设置一个死区，在角速度过低时不更新半径
     double omega_dead_band = 0.1; // 一定是一个正值
+
+    /* === 发散检测参数 === */
+
+    // 卡方发散阈值
+    // 自由度为4，显著性水平为0.99的卡方分布临界值
+    double divergence_threshold = 13.28;
+    // 连续多少帧发散就认为模型发散了
+    int max_divergence_count = 5;
+    // 最大可接受半径，单位米
+    double max_R = 0.6;
+    // 最小可接受半径，单位米
+    double min_R = 0.1;
+    // 最大可接受角速度，包括反向，单位rad/s
+    double max_omega = 25.0;
+
+    struct
+    {
+      bool enable;
+      bool yaw;
+      bool omega;
+      bool R;
+      bool Q_var;
+      bool nis;
+      bool dis;
+      bool model_idx;
+    } debug;
+
   } params_;
 
   // 在正常情况下只有一个模型在运行，初始化时会同时维护多个模型来进行多假设跟踪

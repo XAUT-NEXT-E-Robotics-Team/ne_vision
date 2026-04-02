@@ -40,6 +40,7 @@
 #include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
 
 #include "ne_vision/debug/ne_vision_visualization.hpp"
+#include "ne_vision/utils/ne_rerun_debug.hpp"
 #include <Eigen/src/Core/Matrix.h>
 #include <vector>
 
@@ -53,15 +54,7 @@ namespace sion
 NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
 {
   // 1. 参数赋值
-
-  // 初始化参数和状态信息
-  auto param = NV_PARAM["auto_aim"]["tracker_3d"]["sion_model"];
-
-  // 过程噪声
-  params_.var_a = param["var_a"].as<double>();       // 加速度噪声方差
-  params_.var_beta = param["var_beta"].as<double>(); // 角加速度噪声方差
-  params_.var_z = param["var_z"].as<double>();       // 高度噪声方差
-  params_.var_R = param["var_R"].as<double>();       // 半径噪声方差
+  params_.LoadParam();
 
   // 2. 首次初始化
   initializeModel(init_armors, models_);
@@ -90,14 +83,54 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
   // 根据当前是否已经选定模型来决定是对单个模型进行更新还是对所有模型进行更新
   if (current_model_idx_ < 0)
     for (auto& model : models_)
-      updateOnce(armors, model);
+      updateOnce(armors, model, false); // 多模型评估模式，锁死半径
   else
-    updateOnce(armors, models_.at(current_model_idx_));
+    updateOnce(armors, models_.at(current_model_idx_), true);
 
   // 看看是否达到了多模型转单模型的条件
   checkMultipleModel(models_);
 
-  // TODO: 发散判断并重新初始化
+  // 如果发散了就重置
+  if (current_model_idx_ >= 0 && models_.at(current_model_idx_).is_diverged)
+  {
+    // NV_WARN("Model {} is diverged! Reinitializing...", current_model_idx_);
+    initializeModel(armors, models_);
+  }
+}
+
+void NeSionModel::DebugInfo()
+{
+  std::string prefix = GetName() + "/";
+  int         log_idx = current_model_idx_ >= 0 ? current_model_idx_ : 0;
+  const auto& model = models_.at(log_idx);
+  const auto& x = model.esikf_data.x;
+
+  if (params_.debug.yaw)
+    NV_REC_LOG(prefix + "yaw", rerun::Scalars(x.yaw));
+
+  if (params_.debug.omega)
+    NV_REC_LOG(prefix + "omega", rerun::Scalars(x.omega));
+
+  if (params_.debug.R)
+  {
+    NV_REC_LOG(prefix + "R1", rerun::Scalars(x.R1));
+    NV_REC_LOG(prefix + "R2", rerun::Scalars(x.R2));
+  }
+
+  if (params_.debug.Q_var)
+  {
+    NV_REC_LOG(prefix + "var_a", rerun::Scalars(model.current_var_a));
+    NV_REC_LOG(prefix + "var_beta", rerun::Scalars(model.current_var_beta));
+  }
+
+  if (params_.debug.nis)
+    NV_REC_LOG(prefix + "nis", rerun::Scalars(model.last_nis));
+
+  if (params_.debug.dis)
+    NV_REC_LOG(prefix + "dis", rerun::Scalars(model.last_dis));
+
+  if (params_.debug.model_idx)
+    NV_REC_LOG(prefix + "model_idx", rerun::Scalars(current_model_idx_));
 }
 
 /* === 统合函数区 === */
@@ -121,6 +154,13 @@ void NeSionModel::initializeModel(const interfaces::NeArmors3D_t& init_armors,
   models.at(0).esikf_data.x.R2 = params_.init_R;
   models.at(0).esikf_data.x.z1 = init_armors.armors[0].t.z();
   models.at(0).esikf_data.x.z2 = init_armors.armors[0].t.z();
+  models.at(0).current_var_a = std::sqrt(params_.var_a_min * params_.var_a_max);
+  models.at(0).var_a_base = models.at(0).current_var_a;
+  models.at(0).current_var_beta =
+      std::sqrt(params_.var_beta_min * params_.var_beta_max);
+  models.at(0).divergence_count = 0;
+  models.at(0).last_nis = 0;
+  models.at(0).last_dis = 0;
 
   // 初始化相同的协方差
   models.at(0).esikf_data.eP = ErrorStateMat_t::Identity() * 1e-3;
@@ -154,14 +194,15 @@ void NeSionModel::predictAndUpdateOnce(const interfaces::NeImuData_t& imu_data,
 
   // 2. 更新误差状态预测协方差
   ErrorStateMat_t Q, F;
-  computeQ(dt, Q);
+  computeQ(dt, model.current_var_a, model.current_var_beta, Q);
   computeF(dt, F);
   eP = F * eP * F.transpose() + Q;
 }
 
 // 针对特定的模型，给定一组装甲板数据，更新一次状态
 void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
-                             ModelStatus_t&                  model)
+                             ModelStatus_t&                  model,
+                             bool                            model_is_only_one)
 {
   auto& x = model.esikf_data.x;
   auto& x_pred = model.esikf_data.x_pred;
@@ -179,13 +220,23 @@ void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
     // 2. 处理ID，判断属于车的哪个装甲板
     NePeriodicNumber_t matched_id;
     double             cost; // 对数似然代价
-    if (!matchID(armor, z, x_pred, eP, matched_id, cost))
+    double             nis;  // NIS值
+    if (!matchID(armor, z, x_pred, eP, matched_id, cost, nis))
     {
       // 如果没有成功匹配就放弃本轮更新
       return;
     }
 
-    // 3. 计算累计代价，用于进行多模型评估，低通滤波累计
+    // 3. 发散检测和自适应Q
+    adaptiveQAndDivergenceCheck(model, nis);
+
+    // 记录debug信息
+    model.last_nis = nis;
+    model.last_dis = std::sqrt(z(MEASURE_X_IDX) * z(MEASURE_X_IDX) +
+                               z(MEASURE_Y_IDX) * z(MEASURE_Y_IDX) +
+                               z(MEASURE_Z_IDX) * z(MEASURE_Z_IDX));
+
+    // 4. 计算累计代价，用于进行多模型评估，低通滤波累计
     if (model.update_count == 0)
       model.cumulative_cost = cost;
     else
@@ -194,7 +245,7 @@ void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
           (1 - params_.init_alpha) * cost; // 低通滤波累计代价
     model.update_count++;
 
-    // 4. 迭代更新
+    // 5. 迭代更新
     HJac_t H;
     K_t    K;
     auto   x_pred_start = x_pred; // 最初的先验
@@ -217,10 +268,10 @@ void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
       K = eP * H.transpose() * S.inverse(); // 卡尔曼增益
 
       // 5. 角速度死区处理，如果角速度很小，就不更新半径
-      // TODO: 修改current model 导致的角度锁死，这里是临时处理
+      //    前如果是多假设观测，则需要锁死半径
 #if 1
       if (std::abs(x_pred.omega) < params_.omega_dead_band ||
-          current_model_idx_ < 0)
+          !model_is_only_one)
       {
         K(R1_IDX, MEASURE_X_IDX) = 0;
         K(R1_IDX, MEASURE_Y_IDX) = 0;
@@ -324,6 +375,41 @@ void NeSionModel::checkMultipleModel(const Models_t& models)
   }
 }
 
+// 发散返回True
+void NeSionModel::adaptiveQAndDivergenceCheck(ModelStatus_t& model, double nis)
+{
+  if (nis > params_.divergence_threshold)
+    model.divergence_count++;
+  else
+    model.divergence_count = 0;
+
+  // if (model.divergence_count > params_.max_divergence_count)
+  // {
+  //   model.is_diverged = true;
+  //   return;
+  // }
+
+  // 自适应Q调节
+  double scale_factor = nis / 4.0;
+
+  // 计算目标协方差
+  double target_var_a = model.var_a_base * scale_factor;
+  double target_var_beta = model.var_beta_base * scale_factor;
+
+  // 限制在合理范围内
+  target_var_a = std::clamp(target_var_a, params_.var_a_min, params_.var_a_max);
+  target_var_beta =
+      std::clamp(target_var_beta, params_.var_beta_min, params_.var_beta_max);
+
+  // 平滑调整当前协方差
+  model.current_var_a +=
+      params_.q_scale_rate * (target_var_a - model.current_var_a);
+  model.current_var_beta +=
+      params_.q_scale_rate * (target_var_beta - model.current_var_beta);
+
+  model.is_diverged = false;
+}
+
 /* === 工具函数区 === */
 
 Eigen::Vector3d
@@ -408,7 +494,10 @@ void NeSionModel::predictState(const double        dt,
 }
 
 // 计算过程噪声协方差矩阵Q
-void NeSionModel::computeQ(double dt, ErrorStateMat_t& Q)
+void NeSionModel::computeQ(double           dt,
+                           double           var_a,
+                           double           var_beta,
+                           ErrorStateMat_t& Q)
 {
   // 整体结构
   //     [ Q_trans (4x4) |       0       |       0         ]
@@ -448,7 +537,7 @@ void NeSionModel::computeQ(double dt, ErrorStateMat_t& Q)
   double dt4 = dt3 * dt;
 
   // 1. 平移部分
-  double q_a = params_.var_a;
+  double q_a = var_a;
   Q.block<2, 2>(P_X_IDX, P_X_IDX) =
       0.25 * q_a * dt4 * Eigen::Matrix2d::Identity(); // 位置方差
   Q.block<2, 2>(DP_X_IDX, DP_X_IDX) =
@@ -459,7 +548,7 @@ void NeSionModel::computeQ(double dt, ErrorStateMat_t& Q)
       0.5 * q_a * dt3 * Eigen::Matrix2d::Identity(); // Vel-Pos
 
   // 2. 旋转部分
-  double q_beta = params_.var_beta;
+  double q_beta = var_beta;
   Q(YAW_IDX, YAW_IDX) = 0.25 * q_beta * dt4;  // Yaw方差
   Q(OMEGA_IDX, OMEGA_IDX) = q_beta * dt2;     // Omega方差
   Q(YAW_IDX, OMEGA_IDX) = 0.5 * q_beta * dt3; // Yaw-Omega
@@ -543,7 +632,8 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
                           const NeSionState_t&                       x_pred,
                           const ErrorStateMat_t&                     eP,
                           NePeriodicNumber_t&                        matched_id,
-                          double&                                    cost)
+                          double&                                    cost,
+                          double&                                    nis)
 {
   // 来自julyfun的思路，让我们把整车模型展开来看，看看这个装甲板花落谁家
 
@@ -583,6 +673,14 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
   int    best_id = -1;
   for (int id = 0; id < 4; ++id)
   {
+    // 限制范围，如果yaw差值过大，就不考虑这个ID了，直接跳过
+    Measurement_t z_pred;
+    h(id, x_pred, z_pred);
+    double yaw_diff =
+        math::WrapToPi(z_pred(MEASURE_YAW_IDX) - z(MEASURE_YAW_IDX));
+    if (std::abs(yaw_diff) > M_PI / 2.0)
+      continue;
+
     double distance = compute_mahalanobis_distance(id, cost);
     // TODO: 这里加入阈值判断
     // if (distance >= 500)
@@ -602,6 +700,7 @@ bool NeSionModel::matchID(const interfaces::NeArmors3D_t::Armor3D_t& armor,
 
   cost = best_cost;
   matched_id = best_id;
+  nis = min_mahalanobis_distance;
 
   return true;
 }

@@ -84,6 +84,21 @@ target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 add_subdirectory(3rds/yaml-cpp)
+add_subdirectory(3rds/TinyMPC)
+
+# 拦截并过滤掉tinympcstatic库中的Eigen包含路径 BY AI
+get_target_property(TINYMPC_INCLUDES tinympcstatic INTERFACE_INCLUDE_DIRECTORIES)
+if(TINYMPC_INCLUDES)
+    set(TINYMPC_CLEANED_INCLUDES "")
+    foreach(INC_DIR IN LISTS TINYMPC_INCLUDES)
+        # 如果路径里不包含 "Eigen"，就保留下来
+        if(NOT "${INC_DIR}" MATCHES "Eigen")
+            list(APPEND TINYMPC_CLEANED_INCLUDES "${INC_DIR}")
+        endif()
+    endforeach()
+    # 把过滤后的纯净路径重新设置回去
+    set_target_properties(tinympcstatic PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${TINYMPC_CLEANED_INCLUDES}")
+endif()
 
 # 强依赖RERUN
 message(STATUS "[ne_vision] Rerun debug is enabled.
@@ -109,6 +124,7 @@ target_link_libraries(
     spdlog::spdlog
     Eigen3::Eigen
     yaml-cpp
+    tinympcstatic
 )
 
 ############
@@ -157,7 +173,7 @@ if(ENABLE_BUILD_TESTS)
     include(cmake/build_tests.cmake)
 endif()
 
-include(cmake/build_real.cmake)
+# include(cmake/build_real.cmake)
 
 #################################
 # Build ros2 node and component #

@@ -7,11 +7,36 @@ auto_aim:
     detector_variance: 3.0
   tracker_3d:
     sion_model:
-      var_a: 1.0
-      var_beta: 10.0
+      # 初始参数
+      init_R: 0.3 # 初始半径，单位米
+      init_omega: 5.0 # 初始角速度，单位rad/s，正反转初始化
+      init_max_count_value: 15 # 多少帧后进行评估和选择
+      init_alpha: 0.4 # 累积代价的低通滤波系数，越大越重视历史
+      # ESIKF参数
+      var_a_min: 1
+      var_a_max: 100
+      var_beta_min: 1
+      var_beta_max: 10
+      q_scale_rate: 0.1 # 过程噪声缩放调节率，越小越平滑（低通滤波）
       var_z: 0.01
       var_R: 0.000000001
-      additional_dt: 0.02
+      omega_dead_band: 0.1 # 低角速度死区，单位rad/s
+      # 发散检测参数
+      divergence_threshold: 13.28 # 卡方发散阈值，自由度为4，显著性水平为?的卡方分布临界值
+      max_divergence_count: 5 # 连续多少帧发散就认为模型发散了
+      max_R: 0.6 # 最大可接受半径，单位米
+      min_R: 0.1 # 最小可接受半径，单位米
+      max_omega: 25.0 # 最大可接受角速度，包括反向，单位rad/s
+      additional_dt: -0.1
+      debug: # rerun曲线输出，需要打开调试总总总开关（不是这个），不要开太多
+        enable: false # 总开关
+        yaw: false # yaw弧度
+        omega: false # 角速度
+        R: false # 半径
+        Q_var: false # 方差（过程）
+        nis: false # NIS统计量
+        dis: false # 距离
+        model_idx: false # 多假设模型索引
 
 hardware:
   camera:

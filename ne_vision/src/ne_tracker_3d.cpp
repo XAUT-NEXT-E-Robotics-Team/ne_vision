@@ -115,21 +115,23 @@ DO_NORMAL_TRACKING:
       // 如果没有识别到，上面给出的armors_3d_i_是空的，模型会自动处理
       sion.Update(armors_3d_i_);
 
+      // NeRerunDebug::GetInstance().EnableRealtimeDebug();
+
+      sion.DebugInfo(); // 输出调试信息
+
       auto state = sion.GetState();
       for (int id = 0; id < 4; ++id)
       {
         auto z = sion.Measure(id, state);
-        aim_traj_o.all_armors.emplace_back(z(sion::MEASURE_X_IDX),
-                                           z(sion::MEASURE_Y_IDX),
-                                           z(sion::MEASURE_Z_IDX));
+        aim_traj_o.debug.all_armors.emplace_back(z(sion::MEASURE_X_IDX),
+                                                 z(sion::MEASURE_Y_IDX),
+                                                 z(sion::MEASURE_Z_IDX));
+        aim_traj_o.debug.model_dis =
+            std::sqrt(std::pow(state.p.norm(), 2) +
+                      std::pow((state.z1 + state.z2) / 2, 2));
+        aim_traj_o.debug.model_yaw = state.yaw;
+        aim_traj_o.debug.model_omega = state.omega;
       }
-      NeRerunDebug::GetInstance().EnableRealtimeDebug();
-      NV_REC_LOG("sion_model", rerun::Scalars(state.yaw));
-      NV_REC_LOG("sion_model_R1", rerun::Scalars(state.R1));
-      NV_REC_LOG("sion_model_R2", rerun::Scalars(state.R2));
-      NV_REC_LOG("sion_model_m_id", rerun::Scalars(sion.GetModelIdx()));
-      NV_REC_LOG("sion_model_dis", rerun::Scalars(state.p.norm()));
-      NV_REC_LOG("sion_model_vx", rerun::Scalars(state.omega));
     }
     catch (std::bad_variant_access&)
     {

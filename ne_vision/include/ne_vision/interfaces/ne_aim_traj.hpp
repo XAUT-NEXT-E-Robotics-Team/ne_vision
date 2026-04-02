@@ -52,10 +52,17 @@ struct NeAimTraj_t
   double dt = 0; // 轨迹点之间的时间间隔
 
   std::vector<Eigen::Vector3d> traj_points;
-  std::vector<Eigen::Vector3d> all_armors;
 
   double aim_yaw = 0;
   double aim_pitch = 0;
+
+  struct
+  {
+    std::vector<Eigen::Vector3d> all_armors;
+    double                       model_dis;   // 目标距离
+    double                       model_yaw;   // 模型yaw
+    double                       model_omega; // 模型角速度
+  } debug;
 };
 } // namespace interfaces
 } // namespace ne_vision
