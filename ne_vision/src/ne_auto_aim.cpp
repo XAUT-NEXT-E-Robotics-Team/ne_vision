@@ -119,8 +119,8 @@ void NeAutoAim::Start(std::string config_file_path)
 
   setupTasks();
   tasks_.detector_uPtr_->Start();
-  tasks_.tracker_2d_uPtr_->Start();
-  tasks_.tracker_3d_uPtr_->Start();
+  // tasks_.tracker_2d_uPtr_->Start();
+  // tasks_.tracker_3d_uPtr_->Start();
   tasks_.debug_visualization_uPtr_->Start();
   is_running_ = true;
 }
@@ -226,8 +226,8 @@ void NeAutoAim::setupTasks()
   task_objs_.debug_visualization_sPtr_ =
       std::make_shared<NeVisionVisualization>("debug_visualization");
   task_objs_.debug_visualization_sPtr_->AddArmors2DData();
-  task_objs_.debug_visualization_sPtr_->AddArmors3DData();
-  task_objs_.debug_visualization_sPtr_->AddAimTrajData();
+  // task_objs_.debug_visualization_sPtr_->AddArmors3DData();
+  // task_objs_.debug_visualization_sPtr_->AddAimTrajData();
   tasks_.debug_visualization_uPtr_ =
       std::make_unique<NeTask>(task_objs_.debug_visualization_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,

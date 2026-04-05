@@ -45,11 +45,16 @@
 
 #include "ne_vision/ne_channals.hpp"
 
+#define USE_TENSORRT
+
+#ifdef USE_TENSORRT
+#include "ne_vision/detector/ne_cu/include/ne_cu_infer.h"
+#else
 #include "ne_vision/detector/openvino_infer.hpp"
+#endif
 
-#define MODEL_ROW 640
-#define MODEL_COL 640
-
+#define MODEL_ROW 640.0f
+#define MODEL_COL 640.0f
 namespace ne_vision
 {
 
@@ -80,29 +85,41 @@ NeDetector::NeDetector(const std::string& name) : name_(name)
   std::string model_xml = model_path_str + ".xml";
 
   // Check if files exist
-  bool bin_exists = std::filesystem::exists(model_bin);
-  bool xml_exists = std::filesystem::exists(model_xml);
+  // bool bin_exists = std::filesystem::exists(model_bin);
+  // bool xml_exists = std::filesystem::exists(model_xml);
 
-  if (!bin_exists || !xml_exists)
-  {
-    NV_ERROR("Model files not found! xml: {}, bin: {}", model_xml, model_bin);
-    NV_ERROR("Current working directory: {}",
-             std::filesystem::current_path().string());
-    return;
-  }
+  // if (!bin_exists || !xml_exists)
+  // {
+  //   NV_ERROR("Model files not found! xml: {}, bin: {}", model_xml, model_bin);
+  //   NV_ERROR("Current working directory: {}",
+  //            std::filesystem::current_path().string());
+  //   return;
+  // }
 
   // @julyfun： 水晶
+  //tennsorrt 与openvino的对应的转换关系是一样的
   labels_to_str_ = {"7", "1", "2", "3", "4", "5", "outpost", "ignore", "base"};
 
   // New Infer object safely
   try
   {
-    openvino_infer_uPtr_ =
+#ifdef USE_TENSORRT
+    std::string model_engine = model_path_str + ".engine";
+    infer_uPtr_ = std::make_unique<ne_cu::NeCudaInfer>();
+    if(!infer_uPtr_ -> initModule(model_engine,1,22))
+    {
+     return; 
+    }
+    NV_INFO("Using TensorRT backend for detector.");
+#else
+    infer_uPtr_ =
         std::make_unique<infer::OpenvinoInfer>(model_xml, model_bin, "AUTO");
+    NV_INFO("Using OpenVINO backend for detector.");
+#endif
   }
   catch (const std::exception& e)
   {
-    NV_ERROR("Failed to create OpenvinoInfer: {}", e.what());
+    NV_ERROR("Failed to create infer backend: {}", e.what());
   }
 }
 
@@ -120,7 +137,7 @@ void NeDetector::Detect()
   {
     NV_WARN("Input frame is empty");
     return;
-  }
+  }//收到帧
 
   cv::Mat frame = frame_i_.frame;
 
@@ -132,19 +149,96 @@ void NeDetector::Detect()
   armors_2d.frame_height = height;
   armors_2d.frame_width = width;
 
-  if (!openvino_infer_uPtr_)
+  if (!infer_uPtr_)
   {
-    NV_WARN("OpenVINO infer object not initialized, skipping detection.");
+    NV_WARN("Infer backend not initialized, skipping detection.");
     return;
   }
-
+  //xd,这里必须要
+  #ifndef USE_TENSORRT
+  {
   preProcess(frame);
   // 这里的detect_color暂时没用，我们需要拿到颜色取做装甲板闪烁续命
-  openvino_infer_uPtr_->infer(frame, 0);
+  infer_uPtr_->infer(frame, 0);
   postProcess(width, height, armors_2d, frame_i_.our_color);
 
   armors_2d_c_sPtr_->Transmit(armors_2d);
-
+  }
+  #endif
+  std::vector<cv::Mat> batch;
+  batch.push_back(frame);
+  float conf_thresold = 0.65;
+  float nms_thresold = 0.45;
+  auto cu_results = infer_uPtr_ -> dointerfence(batch,nms_thresold,conf_thresold);
+  if(cu_results.empty() || cu_results[0].empty())
+  {
+    return;
+  }//推理为空
+  const auto &tmp_results = cu_results[0];
+  cv::Mat vis = frame.clone();
+  const float scale = std::min(MODEL_ROW / width,MODEL_COL / height);
+  const float pad_x = (MODEL_ROW - width * scale) * 0.5f;
+  const float pad_y = (MODEL_COL - height * scale) * 0.5f;
+  auto unletterbox = [&](float &x,float &y)
+  {
+    x = (x - pad_x) / scale;
+    y = (y - pad_y) / scale;
+    x = std::clamp(x,0.0f,static_cast<float>(width - 1));
+    y = std::clamp(y,0.0f,static_cast<float>(height - 1));
+    
+  };
+  for(auto &tmp: tmp_results)
+  {
+    float pts[8];
+    for(int i = 0;i < 8;++i)
+    {
+      pts[i] = tmp.landmarks[i];
+    }
+    for(int i = 0;i < 8; ++i)
+    {
+      unletterbox(pts[i * 2],pts[i * 2 + 1]);
+    }
+    std::string armor_label = labels_to_str_[tmp.label];
+    if(armor_label == "ignore")
+    {
+      continue;
+    }
+    char armor_color;
+    switch (tmp.color)
+    {
+    case 1: armor_color = 'R'; break;
+    case 0: armor_color = 'B'; break;
+    default: armor_color = 'N'; break;
+    } // 3
+    // char aim_color == 'R' ? 'B' : 'R';
+    // if (armor_color != aim_color)
+    //   continue;
+    NV_INFO("第 {}",pts[0]);
+    NV_INFO("D  {}",pts[1]);
+    NV_INFO("A {}",pts[2]);
+    NV_INFO("S {}",pts[3]);
+    
+    // const cv::Point2f p0(pts[0], pts[1]);
+    // const cv::Point2f p1(pts[2], pts[3]);
+    // const cv::Point2f p2(pts[4], pts[5]);
+    // const cv::Point2f p3(pts[6], pts[7]);
+    // cv::line(frame, p0, p1, cv::Scalar(0, 255, 0), 2);
+    // cv::line(frame, p1, p2, cv::Scalar(0, 255, 0), 2);
+    // cv::line(frame, p2, p3, cv::Scalar(0, 255, 0), 2);
+    // cv::line(frame, p3, p0, cv::Scalar(0, 255, 0), 2);
+    armors_2d.armors.emplace_back(armor_label,
+                                  armor_color,
+                                  pts[0],
+                                  pts[1],
+                                  pts[2],
+                                  pts[3],
+                                  pts[6],
+                                  pts[7],
+                                  pts[4],
+                                  pts[5]);
+    armors_2d_c_sPtr_->Transmit(armors_2d);
+    
+  }
   // std::chrono::steady_clock::time_point end =
   // std::chrono::steady_clock::now(); double duration_ms =
   //     std::chrono::duration<double, std::milli>(end - now).count();
@@ -157,19 +251,20 @@ void NeDetector::preProcess(cv::Mat& frame)
   cv::resize(frame, frame, cv::Size(MODEL_COL, MODEL_ROW));
 }
 
+
 // 后处理
 void NeDetector::postProcess(size_t        width,
                              size_t        height,
                              NeArmors2D_t& armors_2d,
                              char          out_color)
 {
-  if (openvino_infer_uPtr_->tmp_objects.empty())
+  if (infer_uPtr_->tmp_objects.empty())
   {
     armors_2d.armors.clear();
     return;
   }
 
-  for (auto& obj : openvino_infer_uPtr_->tmp_objects)
+  for (auto& obj : infer_uPtr_->tmp_objects)
   {
     double scale_x = static_cast<double>(width) / 640.0;
     double scale_y = static_cast<double>(height) / 640.0;
@@ -205,5 +300,7 @@ void NeDetector::postProcess(size_t        width,
                                   obj.landmarks[5] * scale_y);
   }
 }
+
+
 
 } // namespace ne_vision

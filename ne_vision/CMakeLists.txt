@@ -44,7 +44,7 @@ project(ne_vision)
 option(ENABLE_BUILD_GDEXTENSION "Enable building GDExtension for godot sim" ON)
 option(ENABLE_BUILD_ROS2_NODE "Enable building ROS2 node and component" ON)
 option(ENABLE_BUILD_TESTS "Enable building tests" ON)
-
+option(USE_TENSORRT_FOR_DETECTOR "Use TensorRT backend for detector" ON)
 option(USE_SYMLINK_INSTALL "Use symlink installation" OFF)
 
 option(USE_RERUN_DEBUG "Use rerun for debugging" ON)
@@ -57,14 +57,39 @@ find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenVINO REQUIRED)
+find_package(CUDAToolkit QUIET)
+if(CUDAToolkit_FOUND)
+    message(STATUS "[ne_vision] CUDA toolkit found. Enabling CUDA sources compilation.")
+    # Enable CUDA language so CMake knows how to build .cu sources
+    enable_language(CUDA)
+else()
+    message(STATUS "[ne_vision] CUDA toolkit not found via CUDAToolkit package. If you need CUDA support, install CUDA or set CUDAToolkit_ROOT.")
+endif()
 
+if(USE_TENSORRT_FOR_DETECTOR)
+    find_package(CUDAToolkit REQUIRED)
+    find_package(CUDA REQUIRED)
+    find_library(NVINFER_LIB nvinfer HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+    find_library(NVINFER_PLUGIN_LIB nvinfer_plugin HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+    find_library(NVONNXPARSER_LIB nvonnxparser HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+    enable_language(CUDA)
+    if(NOT NVINFER_LIB)
+        message(FATAL_ERROR "TensorRT nvinfer library not found. Install TensorRT or set USE_TENSORRT_FOR_DETECTOR=OFF")
+    endif()
+    message(STATUS "[ne_vision] TensorRT backend enabled for detector.")
+endif()
 #################################
 # Build basic ne_vision library #
 #################################
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-file(GLOB_RECURSE NE_VISION_SOURCES src/*.cpp src/*.c)
+file(GLOB_RECURSE NE_VISION_SOURCES src/*.cpp src/*.c src/*.cu)
+# Also include any .cu files that may be placed under include/ (some CUDA helpers live there)
+file(GLOB_RECURSE NE_VISION_CUDA_HEADERS include/**/*.cu)
+if(NE_VISION_CUDA_HEADERS)
+    list(APPEND NE_VISION_SOURCES ${NE_VISION_CUDA_HEADERS})
+endif()
 file(GLOB_RECURSE NE_VISION_HEADERS include/*.h include/*.hpp)
 foreach(source_file ${NE_VISION_SOURCES})
     message(STATUS "[ne_vision] Source file: ${source_file}")
@@ -127,6 +152,23 @@ target_link_libraries(
     tinympcstatic
 )
 
+if(CUDAToolkit_FOUND)
+    # Link CUDA runtime to ensure CUDA symbols are resolved
+    target_link_libraries(${PROJECT_NAME} PUBLIC CUDA::cudart)
+    # Allow separable compilation if CUDA code uses device linking across translation units
+    set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+endif()
+
+if(USE_TENSORRT_FOR_DETECTOR)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC USE_TENSORRT)
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        CUDA::cudart
+        ${NVINFER_LIB}
+        ${NVINFER_PLUGIN_LIB}
+        ${NVONNXPARSER_LIB}
+    )
+endif()
+
 ############
 # Optimize #
 ############
@@ -156,7 +198,6 @@ install_resource(
 )
 
 install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/setup.sh DESTINATION .)
-
 #############################
 # Build interfaces and test #
 #############################

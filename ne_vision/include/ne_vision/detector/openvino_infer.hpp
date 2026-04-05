@@ -8,32 +8,18 @@
 #include <openvino/openvino.hpp>
 #include <vector>
 
+#include "ne_vision/detector/infer_base.hpp"
+
 namespace ne_vision
 {
 
 namespace infer
-
 {
-// 用前先根据模型修改好要修改的地方
 
 using namespace cv;
 using namespace std;
 
-
-struct Object
-{
-  cv::Rect_<float> rect;         //
-  float            landmarks[8]; // 4个关键点
-  int              label;
-  float            prob;
-  int              color; // blue:1 , red:0
-  double           length;
-  double           width;
-  double           ratio; // length s/ width
-};
-
-class OpenvinoInfer
-
+class OpenvinoInfer : public InferBase
 {
 
 public:
@@ -46,8 +32,6 @@ public:
   double ans;
 
   std::vector<double> ious;
-
-  std::vector<Object> tmp_objects;
 
   std::shared_ptr<ov::Model> model;
 

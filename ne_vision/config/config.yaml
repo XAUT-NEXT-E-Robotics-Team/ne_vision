@@ -2,7 +2,7 @@
 auto_aim:
   detector:
     # model_path: "/Users/ziyu/codes/ne_vision/install/share/model/0526"
-    model_path: "/home/ziyu/ziyu/codes/ne_vision/install/share/model/0526"
+    model_path: "/home/ei/ne_vision/ne_vision/model/0526"
   tracker_2d:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2

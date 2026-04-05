@@ -45,7 +45,7 @@
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/interfaces/ne_armors_2d.hpp"
 
-#include "ne_vision/detector/openvino_infer.hpp"
+#include "ne_vision/detector/infer_base.hpp"
 
 namespace ne_vision
 {
@@ -68,12 +68,17 @@ public:
   void Detect();
 
 private:
+  //openvino的预处理
   void preProcess(cv::Mat& frame);
+
   void postProcess(size_t        width,
                    size_t        height,
                    NeArmors2D_t& armor_2d_s,
                    char          our_color);
-
+  void Ten_postProcess(size_t    width,
+                    size_t       height,
+                    NeArmors2D_t& armor_2d_s,
+                    char         our_color);
   std::string name_;
 
   NeFrameInputCsPtr_t input_c_sPtr_;
@@ -81,7 +86,7 @@ private:
 
   NeFrameInput_t frame_i_;
 
-  std::unique_ptr<infer::OpenvinoInfer> openvino_infer_uPtr_;
+  std::unique_ptr<infer::InferBase> infer_uPtr_;
 
   std::array<std::string, 9> labels_to_str_;
 };
