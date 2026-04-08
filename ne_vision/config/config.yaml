@@ -7,6 +7,13 @@ auto_aim:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2
     detector_variance: 3.0
+  mashiro_planner:
+    q_y_pos: 100.0
+    q_y_vel: 1.0
+    q_p_pos: 100.0
+    q_p_vel: 1.0
+    r_y_acc: 10.0
+    r_p_acc: 10.0
   tracker_3d:
     sion_model:
       # 初始参数

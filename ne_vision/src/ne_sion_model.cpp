@@ -51,6 +51,40 @@ namespace ne_vision
 namespace sion
 {
 
+/* === AIM PREDICTOR 用来后续规划器预测 === */
+
+bool NeSionAimPredictor::Predict(double                         dt,
+                                 const interfaces::NeImuData_t& imu_data,
+                                 Eigen::Vector3d&               target_position,
+                                 double& target_yaw) const
+{
+  // 基于当前的系统状态及过去的时差 dt 预测出轨迹的角度
+  // 这里名义状态简单的一阶前向积分：
+  NeSionState_t x_pred;
+  x_pred.p.x() = state_.p.x() + state_.v.x() * dt;
+  x_pred.p.y() = state_.p.y() + state_.v.y() * dt;
+  // TODO: 后续视业务情况可进一步将车辆旋转 omega 计算在内以及选板逻辑
+
+  // 输出目标的 x y z (预测位置)
+  target_position.x() = x_pred.p.x();
+  target_position.y() = x_pred.p.y();
+  target_position.z() = state_.z1; // 取装甲板的其中之一高度作为追踪目标的高度
+
+  // 预测目标的 yaw 并包装到 pi
+  target_yaw = math::WrapToPi(std::atan2(x_pred.p.y(), x_pred.p.x()));
+
+  return true;
+}
+
+std::shared_ptr<interfaces::NeAimPredictorBase> NeSionModel::GetAimPredictor(
+    std::chrono::steady_clock::time_point cap_stamp,
+    std::chrono::steady_clock::time_point update_stamp) const
+{
+  // 将当前的 Sion 内部最优模型的名义推演状态打包到线程安全的预测器中
+  return std::make_shared<NeSionAimPredictor>(
+      cap_stamp, update_stamp, GetState());
+}
+
 NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
 {
   // 1. 参数赋值

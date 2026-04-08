@@ -30,46 +30,52 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-//
-// 目标（装甲板）的轨迹
-//
-// tracker_3d >=> [ne_aim_tra] >=> planner
+// MPC 轨迹重规划，懂得都懂
 
-#pragma once
-
-#include <vector>
 #include <memory>
 
-#include "Eigen/src/Core/Matrix.h"
-
-#include "types/ne_aim_predictor.hpp"
+#include "tinympc/types.hpp"
 
 namespace ne_vision
 {
-namespace interfaces
+
+class NeMashiroPlanner final
 {
-struct NeAimTraj_t
-{
-  std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间
 
-  double dt = 0; // 轨迹点之间的时间间隔
+private:
+  constexpr static int kStateDim = 4;
+  constexpr static int kControlDim = 2;
+  constexpr static int kHorizon = 10;
+  using Mat_A_t = Eigen::Matrix<tinytype, kStateDim, kStateDim>;
+  using Mat_B_t = Eigen::Matrix<tinytype, kStateDim, kControlDim>;
+  using Vec_x_t = Eigen::Matrix<tinytype, kStateDim, 1>;
 
-  std::vector<Eigen::Vector3d> traj_points;
+public:
+  // 采样周期是必须的，所以该任务务必设置为定周期执行
+  NeMashiroPlanner(double dt);
+  ~NeMashiroPlanner() = default;
 
-  double aim_yaw = 0;
-  double aim_pitch = 0;
+  // 规划，任务调用这个
+  bool Plan();
 
-  // 使用 shared_ptr 保证预测器的多态生命周期，以及在 channel (消息队列)
-  // 被线程间传递时的安全拷贝与销毁机制
-  std::shared_ptr<NeAimPredictorBase> aim_predictor;
+private:
+  // 弹道补偿
+  void ballisticCompensation(const Vec_x_t& x0,
+                             const Vec_x_t& target,
+                             Vec_x_t&       x0_comp);
+
+  double      dt_ = 0.01; // 时间步长，单位秒
+  TinySolver* solver_ptr_;
+  double      rho_value_ = 1.0;
 
   struct
   {
-    std::vector<Eigen::Vector3d> all_armors;
-    double                       model_dis;   // 目标距离
-    double                       model_yaw;   // 模型yaw
-    double                       model_omega; // 模型角速度
-  } debug;
+    tinyMatrix Adyn;
+    tinyMatrix Bdyn;
+    tinyMatrix fdyn;
+    tinyMatrix Q;
+    tinyMatrix R;
+  } mpc_mats_;
 };
-} // namespace interfaces
+
 } // namespace ne_vision

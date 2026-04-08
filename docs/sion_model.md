@@ -1,5 +1,7 @@
 # sion —— 反小陀螺整车模型
 
+![](imgs/sion.jpeg)
+
 ## 1. 简介
 
 ## 2. 建系
@@ -18,7 +20,7 @@ $$
 在RM规则下，地面兵种具有两个半径和两种装甲板高度，我们将平移考虑为CV模型，旋转考虑为CV模型，半径和装甲板高度都认为为定值，我们可建立如下运动学模型
 
 $$
-x = 
+x =
 \begin{bmatrix}
 p \\
 \dot{p} \\
@@ -28,7 +30,8 @@ z_1 \\
 z_2 \\
 R_1 \\
 R_2 \\
-\end{bmatrix} 
+\end{bmatrix}
+
 
 $$
 
@@ -43,7 +46,7 @@ $$
 0 \\
 0 \\
 0
-\end{bmatrix} 
+\end{bmatrix}
 $$
 
 p是一个x和y向的向量。
@@ -51,7 +54,7 @@ p是一个x和y向的向量。
 接下来得到观测函数h，该观测函数在观测到任何一装甲板时的情况都不同，因此，以下为四个观测方程。我们定义下角编号，第一个观测到的装甲板编号为0，然后按照虚拟观测目标（车）的装甲板安装顺序逆时针依次增长。我们可以发现，第一次观测到的装甲板（ID-0）的yaw等于整车的旋转，其逆时针走过一个装甲板的yaw - 90°为整车的yaw，依此类推。注意观测方程是yaw + 90°。
 
 $$
-y = 
+y =
 \begin{bmatrix}
 p \\
 z \\
@@ -60,7 +63,7 @@ z \\
 $$
 
 $$
-y_0 = h_0(x) = 
+y_0 = h_0(x) =
 \begin{bmatrix}
 p_x + R_1 cos(\theta) \\
 p_y + R_1 sin(\theta) \\
@@ -70,7 +73,7 @@ z_1 \\
 $$
 
 $$
-y_1 = h_1(x) = 
+y_1 = h_1(x) =
 \begin{bmatrix}
 p_x + R_2 cos(\theta + \frac{\pi}{2}) \\
 p_y + R_2 sin(\theta + \frac{\pi}{2}) \\
@@ -80,7 +83,7 @@ z_2 \\
 $$
 
 $$
-y_2 = h_1(x) = 
+y_2 = h_1(x) =
 \begin{bmatrix}
 p_x + R_1 cos(\theta + \pi) \\
 p_y + R_1 sin(\theta + \pi) \\
@@ -90,7 +93,7 @@ z_1 \\
 $$
 
 $$
-y_3 = h_3(x) = 
+y_3 = h_3(x) =
 \begin{bmatrix}
 p_x + R_2 cos(\theta + \frac{3 \pi}{2}) \\
 p_y + R_2 sin(\theta + \frac{3 \pi}{2}) \\
@@ -146,28 +149,28 @@ $$
 由于R是SO(2)所以我们需特别推导R的误差状态方程。我们可以对 $R_t$ 求导（如果诸位有数学恐惧，这里可以直接跳过，看看结论，其实是非常简单的），注意一点，这里我们需要推的是旋转的误差的导数 $\delta \dot{\theta}$
 
 $$
-\dot{R}_t = 
-Exp(\delta \theta)\dot{R} + \dot{Exp(\delta \theta)}R = 
-\omega_t^\wedge R_t 
+\dot{R}_t =
+Exp(\delta \theta)\dot{R} + \dot{Exp(\delta \theta)}R =
+\omega_t^\wedge R_t
 $$
 
 $$
-\dot{Exp(\delta \theta)} = 
+\dot{Exp(\delta \theta)} =
 \delta \dot{\theta}^\wedge Exp(\delta \theta)
 $$
 
 带入该式并对R求导可以得到
 
 $$
-\dot{R}_t = 
-Exp(\delta \theta)\omega^\wedge R + \delta \dot{\theta}^\wedge Exp(\delta \theta) R = 
-\omega_t^\wedge R_t 
+\dot{R}_t =
+Exp(\delta \theta)\omega^\wedge R + \delta \dot{\theta}^\wedge Exp(\delta \theta) R =
+\omega_t^\wedge R_t
 $$
 
 由于在SO(2)下，反对称和Exp具有交换律，所以可以化简
 
 $$
-Exp(\delta \theta) (\omega^\wedge + \delta \dot{\theta}^\wedge)R = 
+Exp(\delta \theta) (\omega^\wedge + \delta \dot{\theta}^\wedge)R =
 \omega_t^\wedge R_t =
 \omega_t^\wedge \delta R R =
 \omega_t^\wedge Exp(\delta \theta) R
@@ -177,7 +180,7 @@ $$
 
 $$
 Exp(\delta \theta) (\omega^\wedge + \delta \dot{\theta}^\wedge)=
-\omega_t^\wedge Exp(\delta \theta) 
+\omega_t^\wedge Exp(\delta \theta)
 $$
 
 进一步利用交换律，可以消去Exp
@@ -242,15 +245,15 @@ $$
 由4.2节，我们可以得到系统的状态方程，同EKF，我们可以简单的列写下式：
 
 $$
-\mathbf{\hat{x}_{i+1}} = 
+\mathbf{\hat{x}_{i+1}} =
   f(\mathbf{\hat{x}_i}, \mathbf{u_i}, \mathbf{0})
 $$
 
 $$
-\mathbf{\hat{P}_{i+1}} = 
-\mathbf{F_{\~{x}_i}\hat{P}_i} 
+\mathbf{\hat{P}_{i+1}} =
+\mathbf{F_{\~{x}_i}\hat{P}_i}
 \mathbf{F_{\~{x}_i}^\top} +
-\mathbf{F_{{w_i}}\hat{Q}_i} 
+\mathbf{F_{{w_i}}\hat{Q}_i}
 \mathbf{F_{{w_i}}^\top}
 $$
 
@@ -265,33 +268,34 @@ $$
 根据EKF的套路，很显然，P为先验协方差，两个F为雅可比，Q为过程噪声。由于预测数大于观测数，所以有：$i \geq 0$，因此我们可以考虑初始值如上。我们可以计算两雅可比如下：
 
 $$
-\mathbf{F}_{\tilde{\mathbf{x}}_i} = 
-\frac{\partial (\mathbf{x}_{i+1} \boxminus 
-\hat{\mathbf{x}}_{i+1})}{\partial \tilde{\mathbf{x}}_i} 
+\mathbf{F}_{\tilde{\mathbf{x}}_i} =
+\frac{\partial (\mathbf{x}_{i+1} \boxminus
+\hat{\mathbf{x}}_{i+1})}{\partial \tilde{\mathbf{x}}_i}
 \bigg|_{\tilde{\mathbf{x}}_i=0, \mathbf{w}_i=0}
 
+
 $$
 
 $$
-\mathbf{F}_{\mathbf{w}_i} = 
+\mathbf{F}_{\mathbf{w}_i} =
 \frac{\partial (\mathbf{x}_{i+1} \boxminus
-\hat{\mathbf{x}}_{i+1})}{\partial \mathbf{w}_i} 
+\hat{\mathbf{x}}_{i+1})}{\partial \mathbf{w}_i}
 \bigg|_{\tilde{\mathbf{x}}_i=0, \mathbf{w}_i=0}
 $$
 
 从误差状态的定义来看，我们可以发现，上述求导过程本质上是进行如下求导。
 
 $$
-\mathbf{F}_{\tilde{\mathbf{x}}_i} = 
+\mathbf{F}_{\tilde{\mathbf{x}}_i} =
 \frac{\partial F(\mathbf{\~{x}_i}, \mathbf{w_i})}
-{\partial \mathbf{\~{x}}_i} 
+{\partial \mathbf{\~{x}}_i}
 \bigg|_{\tilde{\mathbf{x}}_i=0, \mathbf{w}_i=0}
 $$
 
 $$
-\mathbf{F}_{\mathbf{w}_i} = 
+\mathbf{F}_{\mathbf{w}_i} =
 \frac{\partial F(\mathbf{\~{x}_i}, \mathbf{w_i})}
-{\partial \mathbf{w}_i} 
+{\partial \mathbf{w}_i}
 \bigg|_{\tilde{\mathbf{x}}_i=0, \mathbf{w}_i=0}
 $$
 
@@ -309,7 +313,8 @@ $$
 
 $$
 \mathbf{z} \approx \mathbf{h}(\mathbf{\hat{x}}_k^\kappa, \mathbf{0}) +
-\mathbf{H}^\kappa \mathbf{\~{x}}_k^\kappa + \mathbf{v} 
+\mathbf{H}^\kappa \mathbf{\~{x}}_k^\kappa + \mathbf{v}
+
 
 $$
 
@@ -319,7 +324,7 @@ $$
 $$
 
 $$
-\mathbf{r}^\kappa = \mathbf{z} - \mathbf{h}(\mathbf{\hat{x}}_k^\kappa, \mathbf{0}) 
+\mathbf{r}^\kappa = \mathbf{z} - \mathbf{h}(\mathbf{\hat{x}}_k^\kappa, \mathbf{0})
 $$
 
 当k=0时（迭代前）：
@@ -337,10 +342,10 @@ $$
 因此我们可以得到真值的表达式，同时，我们可以如下计算雅可比矩阵H：
 
 $$
-\mathbf{H}^\kappa = 
-\frac{\partial \mathbf{h}(\mathbf{\~{x}}_k^\kappa \boxplus 
+\mathbf{H}^\kappa =
+\frac{\partial \mathbf{h}(\mathbf{\~{x}}_k^\kappa \boxplus
 \mathbf{\hat{x}}^\kappa_k , \mathbf{n})}
-{\partial \mathbf{\~{x}}_k^\kappa} 
+{\partial \mathbf{\~{x}}_k^\kappa}
 \bigg|_\mathbf{\~{x}^\kappa_k=0, \mathbf{n}=0}
 $$
 
@@ -352,21 +357,21 @@ $$
 
 $$
 \mathbf{\~{x}}_k = \mathbf{x}_k \boxminus \hat{\mathbf{x}}_k
-=  (\hat{\mathbf{x}}_k^\kappa \boxplus \tilde{\mathbf{x}}_k^\kappa) 
+=  (\hat{\mathbf{x}}_k^\kappa \boxplus \tilde{\mathbf{x}}_k^\kappa)
 \boxminus \hat{\mathbf{x}}_k \sim \mathcal{N}(\mathbf{0}, \hat{\mathbf{P}}_k)
 $$
 
 对其进行线性化（在$\mathbf{~{x}}^\kappa_k = 0$处进行泰勒展开），可以得到：
 
 $$
-\mathbf{\~{x}}_k \approx \hat{\mathbf{x}}_k^\kappa \boxminus 
+\mathbf{\~{x}}_k \approx \hat{\mathbf{x}}_k^\kappa \boxminus
 \mathbf{\hat{x}}_k + \mathbf{J}^\kappa \mathbf{\~{x}}^\kappa_k
 $$
 
 注意我们要求的是$\mathbf{\~{x}}^\kappa_k$的协方差，我们已知：
 
 $$
-\hat{\mathbf{x}}_k^\kappa \boxminus 
+\hat{\mathbf{x}}_k^\kappa \boxminus
 \mathbf{\hat{x}}_k + \mathbf{J}^\kappa \mathbf{\~{x}}^\kappa_k
 \sim \mathcal{N}(\mathbf{0}, \hat{\mathbf{P}}_k)
 $$
@@ -375,7 +380,7 @@ $$
 
 $$
 \mathbf{J}^\kappa \mathbf{\~{x}}^\kappa_k
-\sim \mathcal{N}(-(\hat{\mathbf{x}}_k^\kappa \boxminus 
+\sim \mathcal{N}(-(\hat{\mathbf{x}}_k^\kappa \boxminus
 \mathbf{\hat{x}}_k), \hat{\mathbf{P}}_k)
 $$
 
@@ -383,25 +388,25 @@ $$
 
 $$
 \mathbf{\~{x}}^\kappa_k
-\sim \mathcal{N}(-(\mathbf{J}^\kappa)^{-1}(\hat{\mathbf{x}}_k^\kappa 
-\boxminus 
-\mathbf{\hat{x}}_k), 
-(\mathbf{J}^\kappa)^{-1} \hat{\mathbf{P}}_k 
+\sim \mathcal{N}(-(\mathbf{J}^\kappa)^{-1}(\hat{\mathbf{x}}_k^\kappa
+\boxminus
+\mathbf{\hat{x}}_k),
+(\mathbf{J}^\kappa)^{-1} \hat{\mathbf{P}}_k
 {(\mathbf{J}^\kappa)^\top}^{-1} )
 $$
 
 显然我们可以得到$\mathbf{\~{x}}^\kappa_k$的协方差，由于每次迭代都需要计算，此处略去迭代索引记为：
 
 $$
-\mathbf{P} = (\mathbf{J}^\kappa)^{-1} \hat{\mathbf{P}}_k 
-{(\mathbf{J}^\kappa)^\top}^{-1} 
+\mathbf{P} = (\mathbf{J}^\kappa)^{-1} \hat{\mathbf{P}}_k
+{(\mathbf{J}^\kappa)^\top}^{-1}
 $$
 
 对于观测噪声，我们将观测方程中的噪声提前可得：
 
 $$
--\mathbf{v} = \mathbf{r}^\kappa + 
-\mathbf{H}^\kappa \tilde{\mathbf{x}}_k^\kappa 
+-\mathbf{v} = \mathbf{r}^\kappa +
+\mathbf{H}^\kappa \tilde{\mathbf{x}}_k^\kappa
 \sim \mathcal{N}(\mathbf{0}, \mathbf{R})
 $$
 
@@ -413,8 +418,8 @@ $$
 $$
 
 $$
-\hat{\mathbf{x}}_k^{\kappa+1} = \hat{\mathbf{x}}_k^\kappa \boxplus 
-\bigl( \mathbf{K} \mathbf{r}^\kappa_k - (\mathbf{I} - \mathbf{K} \mathbf{H})(\mathbf{J}^\kappa)^{-1} 
+\hat{\mathbf{x}}_k^{\kappa+1} = \hat{\mathbf{x}}_k^\kappa \boxplus
+\bigl( \mathbf{K} \mathbf{r}^\kappa_k - (\mathbf{I} - \mathbf{K} \mathbf{H})(\mathbf{J}^\kappa)^{-1}
 (\hat{\mathbf{x}}_k^\kappa \boxminus \hat{\mathbf{x}}_k) \bigr)
 $$
 

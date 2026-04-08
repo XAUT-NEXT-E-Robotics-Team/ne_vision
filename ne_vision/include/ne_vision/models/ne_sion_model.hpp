@@ -54,6 +54,7 @@
 #include "Eigen/Dense"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
+#include "ne_vision/interfaces/types/ne_aim_predictor.hpp"
 #include "ne_vision/utils/ne_math.hpp"
 
 namespace ne_vision
@@ -143,6 +144,38 @@ struct NeSionState_t
   }
 };
 
+/**
+ * @brief Sion 模型对应的轨迹预测器
+ *
+ * 继承自
+ * NeAimPredictorBase，用于将当前固化的名义状态打包，带入并发安全的轨迹生成阶段。
+ * 通过覆写 Predict 方法，使用给定的推演时差和当前的 IMU 数据重新计算最优的 Yaw
+ * 和 Pitch 期望值。
+ */
+class NeSionAimPredictor : public interfaces::NeAimPredictorBase
+{
+public:
+  NeSionAimPredictor(std::chrono::steady_clock::time_point cap_stamp,
+                     std::chrono::steady_clock::time_point update_stamp,
+                     const NeSionState_t&                  state)
+      : interfaces::NeAimPredictorBase(cap_stamp, update_stamp), state_(state)
+  {
+  }
+
+  virtual ~NeSionAimPredictor() = default;
+
+  /**
+   * @brief 在预测窗口执行状态转移和视线解算
+   */
+  bool Predict(double                         dt,
+               const interfaces::NeImuData_t& imu_data,
+               Eigen::Vector3d&               target_position,
+               double&                        target_yaw) const override;
+
+private:
+  NeSionState_t state_; // 固化的状态副本，保证线程安全
+};
+
 class NeSionModel final
 {
 
@@ -176,6 +209,11 @@ public:
   PredictAndChoose(const interfaces::NeImuData_t& imu_data,
                    double                         b_ds,
                    std::vector<Eigen::Vector3d>&  all_pred_armors);
+
+  // 获取生成器接口，供轨迹传输给MPC调用
+  std::shared_ptr<interfaces::NeAimPredictorBase>
+  GetAimPredictor(std::chrono::steady_clock::time_point cap_stamp,
+                  std::chrono::steady_clock::time_point update_stamp) const;
 
   NeSionState_t GetState() const
   {

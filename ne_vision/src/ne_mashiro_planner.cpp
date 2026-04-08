@@ -30,46 +30,65 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-//
-// 目标（装甲板）的轨迹
-//
-// tracker_3d >=> [ne_aim_tra] >=> planner
 
-#pragma once
-
-#include <vector>
-#include <memory>
-
-#include "Eigen/src/Core/Matrix.h"
-
-#include "types/ne_aim_predictor.hpp"
+#include "ne_vision/planner/ne_mashiro_planner.hpp"
+#include "ne_vision/utils/ne_debug.hpp"
+#include "ne_vision/utils/ne_log.hpp"
+#include "ne_vision/utils/ne_param.hpp"
+#include "tinympc/tiny_api.hpp"
 
 namespace ne_vision
 {
-namespace interfaces
+
+NeMashiroPlanner::NeMashiroPlanner(double dt) : dt_(dt)
 {
-struct NeAimTraj_t
-{
-  std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间
+  // 读取参数
+  auto   param_node = NV_PARAM["auto_aim"]["mashiro_planner"];
+  double q_y_pos = param_node["q_y_pos"].as<double>(100.0);
+  double q_y_vel = param_node["q_y_vel"].as<double>(1.0);
+  double q_p_pos = param_node["q_p_pos"].as<double>(100.0);
+  double q_p_vel = param_node["q_p_vel"].as<double>(1.0);
+  double r_y_acc = param_node["r_y_acc"].as<double>(10.0);
+  double r_p_acc = param_node["r_p_acc"].as<double>(10.0);
 
-  double dt = 0; // 轨迹点之间的时间间隔
+  // 设置几个矩阵
+  mpc_mats_.Adyn.setIdentity();
+  mpc_mats_.Adyn(0, 1) = dt_;
+  mpc_mats_.Adyn(2, 3) = dt_;
 
-  std::vector<Eigen::Vector3d> traj_points;
+  mpc_mats_.Bdyn.setZero();
+  mpc_mats_.Bdyn(0, 0) = 0.5 * dt_ * dt_;
+  mpc_mats_.Bdyn(1, 0) = dt_;
+  mpc_mats_.Bdyn(2, 1) = 0.5 * dt_ * dt_;
+  mpc_mats_.Bdyn(3, 1) = dt_;
 
-  double aim_yaw = 0;
-  double aim_pitch = 0;
+  mpc_mats_.fdyn.setZero();
 
-  // 使用 shared_ptr 保证预测器的多态生命周期，以及在 channel (消息队列)
-  // 被线程间传递时的安全拷贝与销毁机制
-  std::shared_ptr<NeAimPredictorBase> aim_predictor;
+  mpc_mats_.Q.setZero();
+  mpc_mats_.Q(0, 0) = q_y_pos;
+  mpc_mats_.Q(1, 1) = q_y_vel;
+  mpc_mats_.Q(2, 2) = q_p_pos;
+  mpc_mats_.Q(3, 3) = q_p_vel;
 
-  struct
+  mpc_mats_.R.setZero();
+  mpc_mats_.R(0, 0) = r_y_acc;
+  mpc_mats_.R(1, 1) = r_p_acc;
+
+  // 初始化求解器
+  if (!tiny_setup(&solver_ptr_,
+                  mpc_mats_.Adyn,
+                  mpc_mats_.Bdyn,
+                  mpc_mats_.fdyn,
+                  mpc_mats_.Q,
+                  mpc_mats_.R,
+                  rho_value_,
+                  kStateDim,
+                  kControlDim,
+                  kHorizon,
+                  1))
   {
-    std::vector<Eigen::Vector3d> all_armors;
-    double                       model_dis;   // 目标距离
-    double                       model_yaw;   // 模型yaw
-    double                       model_omega; // 模型角速度
-  } debug;
-};
-} // namespace interfaces
+    NV_ASSERT(0 && "Failed to Set Up TinyMPC Solver");
+  }
+}
+
 } // namespace ne_vision

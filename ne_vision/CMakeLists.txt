@@ -100,6 +100,10 @@ if(TINYMPC_INCLUDES)
     set_target_properties(tinympcstatic PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${TINYMPC_CLEANED_INCLUDES}")
 endif()
 
+# 动态生成一个仅包含基础库的 Eigen.h 供外部包含 tinympc 宏时使用，以规避冲突
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated_includes/Eigen.h" "#pragma once\n#include <Eigen/Core>\n#include <Eigen/LU>\n")
+target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated_includes")
+
 # 强依赖RERUN
 message(STATUS "[ne_vision] Rerun debug is enabled.
     Rerun SDK will be integrated for enhanced debugging capabilities.")
