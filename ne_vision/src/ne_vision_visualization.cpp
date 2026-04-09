@@ -364,17 +364,6 @@ void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
     return;
   }
 
-  // NV_DEBUG("{}", vis_pack_.aim_traj.traj_points.size());
-  for (const auto& traj_pt : vis_pack_.aim_traj.traj_points)
-  {
-    cv::Point2d projected_pt = projectToImagePlane(traj_pt);
-    // NV_DEBUG("{} {}", projected_pt.x, projected_pt.y);
-    if (projected_pt.x >= 0 && projected_pt.y >= 0)
-    {
-      cv::circle(frame, projected_pt, 10, cv::Scalar(255, 0, 0), -1);
-    }
-  }
-
   for (const auto& each : vis_pack_.aim_traj.debug.all_armors)
   {
     cv::Point2d projected_pt = projectToImagePlane(each);

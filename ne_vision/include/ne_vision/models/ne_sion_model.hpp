@@ -156,9 +156,9 @@ class NeSionAimPredictor : public interfaces::NeAimPredictorBase
 {
 public:
   NeSionAimPredictor(std::chrono::steady_clock::time_point cap_stamp,
-                     std::chrono::steady_clock::time_point update_stamp,
+                     std::chrono::steady_clock::time_point imu_stamp,
                      const NeSionState_t&                  state)
-      : interfaces::NeAimPredictorBase(cap_stamp, update_stamp), state_(state)
+      : interfaces::NeAimPredictorBase(cap_stamp, imu_stamp), state_(state)
   {
   }
 
@@ -211,9 +211,10 @@ public:
                    std::vector<Eigen::Vector3d>&  all_pred_armors);
 
   // 获取生成器接口，供轨迹传输给MPC调用
-  std::shared_ptr<interfaces::NeAimPredictorBase>
-  GetAimPredictor(std::chrono::steady_clock::time_point cap_stamp,
-                  std::chrono::steady_clock::time_point update_stamp) const;
+  std::shared_ptr<interfaces::NeAimPredictorBase> GetAimPredictor(
+      std::chrono::steady_clock::time_point       cap_stamp,
+      std::chrono::steady_clock::time_point       imu_stamp,
+      const std::vector<interfaces::NeImuData_t>& imu_history) const;
 
   NeSionState_t GetState() const
   {
@@ -279,7 +280,7 @@ private:
   void predictState(const double        dt,
                     const NeSionState_t x,
                     const AccDate_t&    a,
-                    NeSionState_t&      x_pred);
+                    NeSionState_t&      x_pred) const;
   // 计算过程噪声协方差矩阵Q
   void computeQ(double dt, double var_a, double var_beta, ErrorStateMat_t& Q);
   // 计算测量噪声协方差矩阵R

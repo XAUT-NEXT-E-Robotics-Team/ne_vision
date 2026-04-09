@@ -30,46 +30,24 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
+// 存放颜色，弹速等重要信息
 //
-// 目标（装甲板）的轨迹
-//
-// tracker_3d >=> [ne_aim_tra] >=> planner
-
-#pragma once
-
-#include <vector>
-#include <memory>
-
-#include "Eigen/src/Core/Matrix.h"
-
-#include "types/ne_aim_predictor.hpp"
-#include "ne_vision/interfaces/ne_imu_data.hpp"
 
 namespace ne_vision
 {
+
 namespace interfaces
 {
-struct NeAimTraj_t
+
+struct NeRobotState_t
 {
-  std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间 用于对齐
+  // 颜色
+  char color = 'R';
 
-  bool has_target = false; // 是否有目标
-
-  // 使用 shared_ptr 保证预测器的多态生命周期，以及在 channel (消息队列)
-  // 被线程间传递时的安全拷贝与销毁机制
-  std::shared_ptr<NeAimPredictorBase> aim_predictor;
-
-  // 预测器生成时的最新IMU
-  // 如果没有目标，该IMU无效
-  interfaces::NeImuData_t newest_imu;
-
-  struct
-  {
-    std::vector<Eigen::Vector3d> all_armors;
-    double                       model_dis;   // 目标距离
-    double                       model_yaw;   // 模型yaw
-    double                       model_omega; // 模型角速度
-  } debug;
+  // 弹速，单位 m/s
+  double bullet_speed = 20;
 };
+
 } // namespace interfaces
+
 } // namespace ne_vision

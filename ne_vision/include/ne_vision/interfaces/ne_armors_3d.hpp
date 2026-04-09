@@ -42,6 +42,8 @@
 
 #include "ne_vision/utils/ne_math.hpp"
 
+#include "ne_imu_data.hpp"
+
 namespace ne_vision
 {
 namespace interfaces
@@ -53,6 +55,8 @@ struct NeArmors3D_t
   std::chrono::steady_clock::time_point cap_stamp;
 
   std::string aim_id;
+
+  NeImuData_t imu_data; // 观测时刻最近的IMU数据，主要用来后续预测补偿
 
   struct Armor3D_t
   {

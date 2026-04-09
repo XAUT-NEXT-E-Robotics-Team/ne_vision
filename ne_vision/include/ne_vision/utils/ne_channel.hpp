@@ -49,6 +49,7 @@
 #include <deque>
 #include <mutex>
 #include <vector>
+#include <algorithm>
 
 #include "ne_vision/utils/ne_debug.hpp"
 
@@ -345,10 +346,48 @@ public:
     return true;
   }
 
-  std::deque<T> GetAllData() const
+  std::deque<T> GetAllData()
   {
     std::unique_lock<std::mutex> lock(mtx__);
     return data_queue_;
+  }
+
+  /**
+   * @brief Gets all elements in the channel with timestamps strictly after the
+   * given time.
+   *
+   * This method performs a binary search to find the first element after the
+   * specified time. The elements in the channel are expected to be sorted by
+   * timestamp.
+   *
+   * @note This method is thread-safe.
+   * @param time The time point to use as a lower bound.
+   * @param get_timestamp A callable to extract the timestamp from a channel
+   * element.
+   * @return A vector of elements with timestamps > time.
+   */
+  template <typename TimestampExtractor>
+  std::vector<T> GetDataSince(const std::chrono::steady_clock::time_point& time,
+                              TimestampExtractor get_timestamp)
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+    std::vector<T>               result;
+
+    if (data_queue_.empty())
+    {
+      return result;
+    }
+
+    auto it = std::upper_bound(
+        data_queue_.begin(),
+        data_queue_.end(),
+        time,
+        [&](const std::chrono::steady_clock::time_point& t, const T& item) {
+          return t < get_timestamp(item);
+        });
+
+    result.insert(result.end(), it, data_queue_.end());
+    return result;
   }
 
   /**

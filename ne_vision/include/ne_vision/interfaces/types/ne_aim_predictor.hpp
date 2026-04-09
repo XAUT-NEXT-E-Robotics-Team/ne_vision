@@ -66,11 +66,11 @@ public:
    * @brief 构造函数
    *
    * @param cap_stamp 预测器计算依赖的原始视觉捕捉(Capture)系统时刻
-   * @param update_stamp 预测器建立或最后一次参数更新时的真实系统时间
+   * @param imu_stamp 预测器建立或最后一次参数更新时的最新IMU时间(并非当前时间)
    */
   NeAimPredictorBase(std::chrono::steady_clock::time_point cap_stamp,
-                     std::chrono::steady_clock::time_point update_stamp)
-      : cap_stamp_(cap_stamp), update_stamp_(update_stamp)
+                     std::chrono::steady_clock::time_point imu_stamp)
+      : cap_stamp_(cap_stamp), imu_stamp_(imu_stamp)
   {
   }
 
@@ -104,10 +104,10 @@ public:
   /**
    * @brief 获取当前预测器建立/更新时的系统时间戳（线程安全）
    */
-  std::chrono::steady_clock::time_point GetUpdateStamp() const
+  std::chrono::steady_clock::time_point GetImuStamp() const
   {
     std::shared_lock<std::shared_mutex> lock(mtx_);
-    return update_stamp_;
+    return imu_stamp_;
   }
 
   /**
@@ -115,11 +115,11 @@ public:
    * 在使用复用对象而不销毁重建时，可以保证并发更新的读写安全。
    */
   void UpdateTimestamps(std::chrono::steady_clock::time_point cap_stamp,
-                        std::chrono::steady_clock::time_point update_stamp)
+                        std::chrono::steady_clock::time_point imu_stamp)
   {
     std::unique_lock<std::shared_mutex> lock(mtx_);
     cap_stamp_ = cap_stamp;
-    update_stamp_ = update_stamp;
+    imu_stamp_ = imu_stamp;
   }
 
 protected:
@@ -127,7 +127,7 @@ protected:
   std::chrono::steady_clock::time_point
       cap_stamp_; ///< 视觉原始捕捉数据的实际时间
   std::chrono::steady_clock::time_point
-      update_stamp_; ///< 预测器模型建立或刷新的系统时间
+      imu_stamp_; ///< 预测器建立或最后一次参数更新时的最新IMU时间(并非当前时间)
 
   // 读写锁，保证多线程安全
   mutable std::shared_mutex mtx_;

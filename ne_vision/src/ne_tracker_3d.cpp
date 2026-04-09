@@ -45,12 +45,8 @@ void NeTracker3D::Track()
     return;
   }
 
-  // TODO: 考虑时间同步
-  if (!imu_data_c_sPtr_->Receive(imu_data_i_, true))
-  {
-    NV_WARN("No IMU data received, skipping tracking");
-    return;
-  }
+  // 更新当前IMU数据
+  imu_data_i_ = armors_3d_i_.imu_data;
 
   // 0. 计算dt
   auto this_cap_stamp = armors_3d_i_.cap_stamp;
@@ -104,6 +100,8 @@ DO_NORMAL_TRACKING:
 
   // 计算dt
   static auto last_time = std::chrono::steady_clock::now();
+
+  // 分门别类观测
   if (IS_SION_MODEL(current_tracking_aim_))
   {
     try
@@ -132,11 +130,32 @@ DO_NORMAL_TRACKING:
         aim_traj_o.debug.model_yaw = state.yaw;
         aim_traj_o.debug.model_omega = state.omega;
       }
+
+      // 获取并提取这期间的IMU数据
+      auto imu_history = imu_data_c_sPtr_->GetDataSince(
+          armors_3d_i_.cap_stamp,
+          [](const interfaces::NeImuData_t& imu) { return imu.receive_stamp; });
+
+      auto newest_imu = imu_history.empty() ? imu_data_i_ : imu_history.back();
+
+      // 将cap_stamp处的状态后推到imu_received_stamp（还不是当前时间）
+      aim_traj_o.aim_predictor = sion.GetAimPredictor(
+          armors_3d_i_.cap_stamp, newest_imu.receive_stamp, imu_history);
+
+      // 记录预测器生成时的最新IMU
+      aim_traj_o.newest_imu = newest_imu;
+
+      // 目标存在
+      aim_traj_o.has_target = true;
     }
     catch (std::bad_variant_access&)
     {
       NV_ASSERT(0 && "Model type is not same as aim model type!");
     }
+  }
+  else
+  {
+    aim_traj_o.has_target = false;
   }
 SEND:
   aim_traj_o.cap_stamp = armors_3d_i_.cap_stamp;

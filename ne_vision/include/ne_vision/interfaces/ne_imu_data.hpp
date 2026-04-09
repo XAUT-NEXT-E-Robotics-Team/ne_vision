@@ -52,8 +52,6 @@ struct NeImuData_t
   Eigen::Vector3d    acc;  // Acceleration in m/s^2
   Eigen::Vector3d    gyro; // Angular velocity in rad/s. Not use now
   Eigen::Quaterniond quat; // Orientation as a quaternion
-
-  double muzzle_speed; // 弹速
 };
 
 } // namespace interfaces

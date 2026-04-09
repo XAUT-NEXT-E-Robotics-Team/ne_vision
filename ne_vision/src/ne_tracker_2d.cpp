@@ -228,6 +228,9 @@ void NeTracker2D::Tarck2D()
   // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对，以及后续各类时间戳
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
+
+  // 直接把这个时间点的IMU数据发过去，用于时间链传播
+  armors_3d_.imu_data = imu_data_;
   armors_3d_c_sPtr_->Transmit(armors_3d_);
 
   // std::chrono::steady_clock::time_point end =

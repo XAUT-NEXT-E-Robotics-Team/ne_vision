@@ -99,7 +99,6 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.acc = acc;
   msg.gyro = gyro;
   msg.quat = quat;
-  msg.muzzle_speed = muzzel_velocity_;
 
   NV_CHANNELS.imu_data_sPtr()->Transmit(msg);
 }
@@ -178,8 +177,8 @@ void NeAutoAim::GetResult(double& yaw, double& pitch)
     NV_WARN("Wait for data from {}", NV_CHANNELS.aim_traj_sPtr()->GetName());
     return;
   }
-  yaw = msg.aim_yaw;
-  pitch = msg.aim_pitch;
+  // yaw = msg.aim_yaw;
+  // pitch = msg.aim_pitch;
 }
 
 void NeAutoAim::Stop()

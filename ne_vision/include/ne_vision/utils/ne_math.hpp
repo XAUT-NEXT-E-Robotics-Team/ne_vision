@@ -87,6 +87,16 @@ inline double QuaternionToYaw(const Eigen::Quaterniond& q)
   return std::atan2(siny_cosp, cosy_cosp);
 }
 
+inline double QuaternionToPitch(const Eigen::Quaterniond& q)
+{
+  // 计算pitch角
+  double sinp = 2.0 * (q.w() * q.y() - q.z() * q.x());
+  if (std::abs(sinp) >= 1.0)
+    return std::copysign(M_PI / 2.0, sinp);
+  else
+    return std::asin(sinp);
+}
+
 inline double DegToRad(double deg) { return deg * M_PI / 180.0; }
 
 inline double RadToDeg(double rad) { return rad * 180.0 / M_PI; }

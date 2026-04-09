@@ -77,12 +77,37 @@ bool NeSionAimPredictor::Predict(double                         dt,
 }
 
 std::shared_ptr<interfaces::NeAimPredictorBase> NeSionModel::GetAimPredictor(
-    std::chrono::steady_clock::time_point cap_stamp,
-    std::chrono::steady_clock::time_point update_stamp) const
+    std::chrono::steady_clock::time_point       cap_stamp,
+    std::chrono::steady_clock::time_point       imu_stamp,
+    const std::vector<interfaces::NeImuData_t>& imu_history) const
 {
-  // 将当前的 Sion 内部最优模型的名义推演状态打包到线程安全的预测器中
-  return std::make_shared<NeSionAimPredictor>(
-      cap_stamp, update_stamp, GetState());
+  NeSionState_t fast_state = GetState();
+  auto          current_stamp = cap_stamp;
+
+  // 使用所有的有效IMU历史帧进行高频全量积分，剥离滞后的延迟
+  for (const auto& imu : imu_history)
+  {
+    if (imu.receive_stamp <= current_stamp)
+      continue;
+
+    double dt = std::chrono::duration<double>(imu.receive_stamp - current_stamp)
+                    .count();
+    if (dt <= 0.0)
+      continue;
+
+    // 提取加速度并积分状态
+    AccDate_t a;
+    a.x() = 0.0; // imu.acc.x();
+    a.y() = 0.0; // imu.acc.y();
+
+    NeSionState_t x_pred;
+    predictState(dt, fast_state, a, x_pred);
+    fast_state = x_pred;
+
+    current_stamp = imu.receive_stamp;
+  }
+
+  return std::make_shared<NeSionAimPredictor>(cap_stamp, imu_stamp, fast_state);
 }
 
 NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)
@@ -498,7 +523,7 @@ NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
 void NeSionModel::predictState(const double        dt,
                                const NeSionState_t x,
                                const AccDate_t&    a,
-                               NeSionState_t&      x_pred)
+                               NeSionState_t&      x_pred) const
 {
   // 位置预测：p' = p + v*dt + 0.5*a*dt^2
   x_pred.p = x.p + x.v * dt + 0.5 * a * dt * dt;
