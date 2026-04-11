@@ -170,7 +170,8 @@ public:
   bool Predict(double                         dt,
                const interfaces::NeImuData_t& imu_data,
                Eigen::Vector3d&               target_position,
-               double&                        target_yaw) const override;
+               double&                        target_yaw,
+               Eigen::Vector3d&               target_velocity) const override;
 
 private:
   NeSionState_t state_; // 固化的状态副本，保证线程安全
@@ -178,6 +179,7 @@ private:
 
 class NeSionModel final
 {
+  friend class NeSionAimPredictor;
 
 private:
   using ErrorState_t = Eigen::Matrix<double, 10, 1>;
@@ -277,18 +279,23 @@ private:
   // 以便编写观测器逻辑时，可以把每个函数当作独立的工具函数从而减少耦合
 
   // 预测状态
-  void predictState(const double        dt,
-                    const NeSionState_t x,
-                    const AccDate_t&    a,
-                    NeSionState_t&      x_pred) const;
+  static void predictState(const double        dt,
+                           const NeSionState_t x,
+                           const AccDate_t&    a,
+                           NeSionState_t&      x_pred);
   // 计算过程噪声协方差矩阵Q
   void computeQ(double dt, double var_a, double var_beta, ErrorStateMat_t& Q);
   // 计算测量噪声协方差矩阵R
   void computeR(MeasurementNoiseCov_t& R);
   // 计算预测雅克比（误差状态）
   void computeF(double dt, ErrorStateMat_t& F);
-  // 观测方程h
-  void h(const NePeriodicNumber_t id, const NeSionState_t& x, Measurement_t& z);
+  // 观测方程h及其重载（含速度计算）
+  static void
+  h(const NePeriodicNumber_t id, const NeSionState_t& x, Measurement_t& z);
+  static void h(const NePeriodicNumber_t id,
+                const NeSionState_t&     x,
+                Measurement_t&           z,
+                Eigen::Vector3d&         v);
 
   // 计算H 这里的x有两种可能的取值
   // 1. 名义变量预测结果x_hat

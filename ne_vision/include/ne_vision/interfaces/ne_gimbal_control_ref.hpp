@@ -30,66 +30,48 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// 3D跟踪器仅作为任务分配和处理接口，具体如何处理各个不同的目标，由model
-// 模块进行，见model模块相关头文件
+// 云台控制参考值
+// 自瞄算法部分的最后一步
 
 #pragma once
 
+#include <string>
 #include <chrono>
-#include <memory>
-
-#include "ne_vision/utils/ne_channel.hpp"
-
-#include "ne_vision/interfaces/ne_armors_3d.hpp"
-#include "ne_vision/interfaces/ne_imu_data.hpp"
-#include "ne_vision/interfaces/ne_aim_state.hpp"
-
-#include "ne_vision/models/ne_sion_model.hpp"
 
 namespace ne_vision
 {
 
-class NeTracker3D final
+namespace interfaces
 {
 
-private:
-  using NeArmors3D_t = interfaces::NeArmors3D_t;
-  using NeImuData_t = interfaces::NeImuData_t;
-  using NeAimState_t = interfaces::NeAimState_t;
-  using NeArmors3DCSPtr_t = std::shared_ptr<NeChannel<NeArmors3D_t>>;
-  using NeImuDataCSPtr_t = std::shared_ptr<NeChannel<NeImuData_t>>;
-  using NeAimStateCSPtr_t = std::shared_ptr<NeChannel<NeAimState_t>>;
+struct NeGimbalControlRef_t
+{
+  // 拍摄时间，用于可视化对齐
+  std::chrono::steady_clock::time_point cap_stamp;
 
-public:
-  explicit NeTracker3D(const std::string& name);
-  ~NeTracker3D() = default;
+  // 预测后时间
+  std::chrono::steady_clock::time_point predicted_stamp;
 
-  void Track();
+  // 目标装甲板ID
+  std::string armor_id = "NULL";
 
-  inline std::string GetName() const { return name_; }
+  // 目标有效性
+  bool valid = false;
 
-private:
-  std::string name_;
+  // 参考目标值（发给电控）
+  double yaw_ref = 0.0;
+  double pitch_ref = 0.0;
+  double yaw_v_ref = 0.0;
+  double pitch_v_ref = 0.0;
 
-  NeArmors3DCSPtr_t armors_3d_c_sPtr_;
-  NeImuDataCSPtr_t  imu_data_c_sPtr_;
-  NeAimStateCSPtr_t  aim_state_c_sPtr_;
-
-  std::string current_tracking_aim_ = "NULL";
-
-  // 上次识别到装甲板的时间点
-  std::chrono::steady_clock::time_point last_detected_stamp_;
-
-  // 上次拍摄的时间点
-  std::chrono::steady_clock::time_point last_cap_stamp_;
-
-  // 这是一个保存所有模型的联合体，如果有新的模型，要放进去
-  std::variant<std::monostate, sion::NeSionModel> model_;
-
-  struct
+  // 保存选板数据，用于可视化调试
+  struct debug_t
   {
-    double idle_time = 0.5; // 认为空闲的时间阈值，单位秒 TODO: 写到参数里边去
-  } param_;
+    // 选板的装甲板pose x y z yaw
+    Eigen::Vector4d target_armor_xyzy;
+  } debug;
 };
+
+} // namespace interfaces
 
 } // namespace ne_vision

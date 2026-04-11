@@ -91,7 +91,8 @@ public:
   virtual bool Predict(double             dt,
                        const NeImuData_t& imu_data,
                        Eigen::Vector3d&   target_position,
-                       double&            target_yaw) const = 0;
+                       double&            target_yaw,
+                       Eigen::Vector3d&   target_velocity) const = 0;
   /**
    * @brief 获取拍摄/捕捉时刻的时间戳（线程安全）
    */

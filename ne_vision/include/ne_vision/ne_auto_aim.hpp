@@ -34,25 +34,16 @@
 
 #pragma once
 
-#include "ne_vision/interfaces/ne_armors_2d.hpp"
-#include "opencv2/opencv.hpp"
+#include <memory>
 
 #include "ne_vision/utils/ne_param.hpp"
-#include "ne_vision/utils/ne_channel.hpp"
 #include "ne_vision/utils/ne_task.hpp"
-
-#include "ne_vision/interfaces/ne_frame_input.hpp"
-#include "ne_vision/interfaces/ne_debug_frame.hpp"
-#include "ne_vision/interfaces/ne_armors_2d.hpp"
-#include "ne_vision/interfaces/ne_imu_data.hpp"
-#include "ne_vision/interfaces/ne_armors_3d.hpp"
-#include "ne_vision/interfaces/ne_aim_traj.hpp"
 
 #include "ne_vision/detector/ne_detector.hpp"
 #include "ne_vision/tracker/ne_tracker_2d.hpp"
 #include "ne_vision/tracker/ne_tracker_3d.hpp"
+#include "ne_vision/planner/ne_mashiro_planner.hpp"
 #include "ne_vision/debug/ne_vision_visualization.hpp"
-#include <memory>
 
 namespace ne_vision
 {
@@ -105,15 +96,17 @@ private:
     std::unique_ptr<NeTask> detector_uPtr_;
     std::unique_ptr<NeTask> tracker_2d_uPtr_;
     std::unique_ptr<NeTask> tracker_3d_uPtr_;
+    std::unique_ptr<NeTask> mashiro_planner_uPtr_;
 
     std::unique_ptr<NeTask> debug_visualization_uPtr_;
   } tasks_;
 
   struct
   {
-    std::shared_ptr<NeDetector>  detector_sPtr_;
-    std::shared_ptr<NeTracker2D> tracker_2d_sPtr_;
-    std::shared_ptr<NeTracker3D> tracker_3d_sPtr_;
+    std::shared_ptr<NeDetector>       detector_sPtr_;
+    std::shared_ptr<NeTracker2D>      tracker_2d_sPtr_;
+    std::shared_ptr<NeTracker3D>      tracker_3d_sPtr_;
+    std::shared_ptr<NeMashiroPlanner> mashiro_planner_sPtr_;
 
     std::shared_ptr<NeVisionVisualization> debug_visualization_sPtr_;
   } task_objs_;

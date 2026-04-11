@@ -49,11 +49,13 @@ namespace ne_vision
 {
 namespace interfaces
 {
-struct NeAimTraj_t
+struct NeAimState_t
 {
   std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间 用于对齐
 
   bool has_target = false; // 是否有目标
+
+  std::string armor_id = "NULL";
 
   // 使用 shared_ptr 保证预测器的多态生命周期，以及在 channel (消息队列)
   // 被线程间传递时的安全拷贝与销毁机制
@@ -65,7 +67,7 @@ struct NeAimTraj_t
 
   struct
   {
-    std::vector<Eigen::Vector3d> all_armors;
+    std::vector<Eigen::Vector4d> all_armors;  // x y z yaw
     double                       model_dis;   // 目标距离
     double                       model_yaw;   // 模型yaw
     double                       model_omega; // 模型角速度

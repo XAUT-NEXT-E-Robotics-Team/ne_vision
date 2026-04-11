@@ -43,6 +43,7 @@
 #include <cfloat>
 #include <chrono>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace ne_vision
 {
@@ -101,6 +102,10 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.quat = quat;
 
   NV_CHANNELS.imu_data_sPtr()->Transmit(msg);
+
+  interfaces::NeRobotState_t robot_state_msg;
+  robot_state_msg.bullet_speed = 20.0; // TODO: 从实际数据获取弹速
+  NV_CHANNELS.robot_state_sPtr()->Transmit(robot_state_msg);
 }
 
 void NeAutoAim::Start(std::string config_file_path)
@@ -120,6 +125,7 @@ void NeAutoAim::Start(std::string config_file_path)
   tasks_.detector_uPtr_->Start();
   tasks_.tracker_2d_uPtr_->Start();
   tasks_.tracker_3d_uPtr_->Start();
+  tasks_.mashiro_planner_uPtr_->Start();
   tasks_.debug_visualization_uPtr_->Start();
   is_running_ = true;
 }
@@ -169,12 +175,12 @@ void NeAutoAim::GetResult(double& yaw, double& pitch)
     return;
   }
 
-  interfaces::NeAimTraj_t msg;
-  if (!NV_CHANNELS.aim_traj_sPtr()->Receive(msg))
+  interfaces::NeAimState_t msg;
+  if (!NV_CHANNELS.aim_state_sPtr()->Receive(msg))
   {
     yaw = 0;
     pitch = 0;
-    NV_WARN("Wait for data from {}", NV_CHANNELS.aim_traj_sPtr()->GetName());
+    NV_WARN("Wait for data from {}", NV_CHANNELS.aim_state_sPtr()->GetName());
     return;
   }
   // yaw = msg.aim_yaw;
@@ -222,11 +228,21 @@ void NeAutoAim::setupTasks()
                                task_objs_.tracker_3d_sPtr_.get(),
                                &NeTracker3D::Track);
 
+  task_objs_.mashiro_planner_sPtr_ =
+      std::make_shared<NeMashiroPlanner>("mashiro_planner");
+  tasks_.mashiro_planner_uPtr_ =
+      std::make_unique<NeTask>(task_objs_.mashiro_planner_sPtr_->GetName(),
+                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
+                               NV_CHANNELS.aim_state_sPtr(),
+                               task_objs_.mashiro_planner_sPtr_.get(),
+                               &NeMashiroPlanner::Plan);
+
   task_objs_.debug_visualization_sPtr_ =
       std::make_shared<NeVisionVisualization>("debug_visualization");
   task_objs_.debug_visualization_sPtr_->AddArmors2DData();
   task_objs_.debug_visualization_sPtr_->AddArmors3DData();
   task_objs_.debug_visualization_sPtr_->AddAimTrajData();
+  task_objs_.debug_visualization_sPtr_->AddGimbalControlRefData();
   tasks_.debug_visualization_uPtr_ =
       std::make_unique<NeTask>(task_objs_.debug_visualization_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,

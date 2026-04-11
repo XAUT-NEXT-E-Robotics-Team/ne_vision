@@ -22,11 +22,11 @@ namespace ne_vision
 NeTracker3D::NeTracker3D(const std::string& name)
     : name_(name), armors_3d_c_sPtr_(NV_CHANNELS.armor3d_sPtr()),
       imu_data_c_sPtr_(NV_CHANNELS.imu_data_sPtr()),
-      aim_traj_c_sPtr_(NV_CHANNELS.aim_traj_sPtr())
+      aim_state_c_sPtr_(NV_CHANNELS.aim_state_sPtr())
 {
   NV_ASSERT(armors_3d_c_sPtr_ != nullptr && imu_data_c_sPtr_ != nullptr &&
-            aim_traj_c_sPtr_ != nullptr &&
-            "armors_3d_c_sPtr_, imu_data_c_sPtr_, and aim_traj_c_sPtr_ cannot "
+            aim_state_c_sPtr_ != nullptr &&
+            "armors_3d_c_sPtr_, imu_data_c_sPtr_, and aim_state_c_sPtr_ cannot "
             "be nullptr");
 
   last_cap_stamp_ = std::chrono::steady_clock::now();
@@ -34,7 +34,7 @@ NeTracker3D::NeTracker3D(const std::string& name)
 
 void NeTracker3D::Track()
 {
-  NeAimTraj_t aim_traj_o;
+  NeAimState_t aim_state_o;
 
   NeArmors3D_t armors_3d_i_;
   NeImuData_t  imu_data_i_;
@@ -121,14 +121,15 @@ DO_NORMAL_TRACKING:
       for (int id = 0; id < 4; ++id)
       {
         auto z = sion.Measure(id, state);
-        aim_traj_o.debug.all_armors.emplace_back(z(sion::MEASURE_X_IDX),
-                                                 z(sion::MEASURE_Y_IDX),
-                                                 z(sion::MEASURE_Z_IDX));
-        aim_traj_o.debug.model_dis =
+        aim_state_o.debug.all_armors.emplace_back(z(sion::MEASURE_X_IDX),
+                                                  z(sion::MEASURE_Y_IDX),
+                                                  z(sion::MEASURE_Z_IDX),
+                                                  z(sion::MEASURE_YAW_IDX));
+        aim_state_o.debug.model_dis =
             std::sqrt(std::pow(state.p.norm(), 2) +
                       std::pow((state.z1 + state.z2) / 2, 2));
-        aim_traj_o.debug.model_yaw = state.yaw;
-        aim_traj_o.debug.model_omega = state.omega;
+        aim_state_o.debug.model_yaw = state.yaw;
+        aim_state_o.debug.model_omega = state.omega;
       }
 
       // 获取并提取这期间的IMU数据
@@ -139,14 +140,14 @@ DO_NORMAL_TRACKING:
       auto newest_imu = imu_history.empty() ? imu_data_i_ : imu_history.back();
 
       // 将cap_stamp处的状态后推到imu_received_stamp（还不是当前时间）
-      aim_traj_o.aim_predictor = sion.GetAimPredictor(
+      aim_state_o.aim_predictor = sion.GetAimPredictor(
           armors_3d_i_.cap_stamp, newest_imu.receive_stamp, imu_history);
 
       // 记录预测器生成时的最新IMU
-      aim_traj_o.newest_imu = newest_imu;
+      aim_state_o.newest_imu = newest_imu;
 
       // 目标存在
-      aim_traj_o.has_target = true;
+      aim_state_o.has_target = true;
     }
     catch (std::bad_variant_access&)
     {
@@ -155,11 +156,14 @@ DO_NORMAL_TRACKING:
   }
   else
   {
-    aim_traj_o.has_target = false;
+    aim_state_o.has_target = false;
+    aim_state_o.newest_imu = imu_data_i_;
+    aim_state_o.aim_predictor = nullptr;
   }
 SEND:
-  aim_traj_o.cap_stamp = armors_3d_i_.cap_stamp;
-  aim_traj_c_sPtr_->Transmit(aim_traj_o);
+  aim_state_o.armor_id = current_tracking_aim_;
+  aim_state_o.cap_stamp = armors_3d_i_.cap_stamp;
+  aim_state_c_sPtr_->Transmit(aim_state_o);
 }
 
 } // namespace ne_vision

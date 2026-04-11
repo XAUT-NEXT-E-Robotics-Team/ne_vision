@@ -56,22 +56,38 @@ namespace sion
 bool NeSionAimPredictor::Predict(double                         dt,
                                  const interfaces::NeImuData_t& imu_data,
                                  Eigen::Vector3d&               target_position,
-                                 double& target_yaw) const
+                                 double&                        target_yaw,
+                                 Eigen::Vector3d& target_velocity) const
 {
-  // 基于当前的系统状态及过去的时差 dt 预测出轨迹的角度
-  // 这里名义状态简单的一阶前向积分：
-  NeSionState_t x_pred;
-  x_pred.p.x() = state_.p.x() + state_.v.x() * dt;
-  x_pred.p.y() = state_.p.y() + state_.v.y() * dt;
-  // TODO: 后续视业务情况可进一步将车辆旋转 omega 计算在内以及选板逻辑
+  // 选板和预测
 
-  // 输出目标的 x y z (预测位置)
-  target_position.x() = x_pred.p.x();
-  target_position.y() = x_pred.p.y();
-  target_position.z() = state_.z1; // 取装甲板的其中之一高度作为追踪目标的高度
+  // 1. 预测一段时间
+  NeSionState_t   x_pred;
+  Eigen::Vector2d a;
+  a << imu_data.acc.x(), imu_data.acc.y();
 
-  // 预测目标的 yaw 并包装到 pi
-  target_yaw = math::WrapToPi(std::atan2(x_pred.p.y(), x_pred.p.x()));
+  NeSionModel::predictState(dt, state_, a, x_pred);
+
+  // 2. 获取当前云台YAW朝向
+  double gimbal_yaw = math::QuaternionToYaw(imu_data.quat);
+
+  // 3. 计算四个装甲板位置，并取与云台朝向最小的那个
+  double min_yaw_diff = std::numeric_limits<double>::max();
+  for (int i = 0; i < 4; ++i)
+  {
+    Eigen::Vector4d armor_pos;
+    Eigen::Vector3d armor_vel;
+    NeSionModel::h(i, x_pred, armor_pos, armor_vel);
+    double armor_yaw = armor_pos(3);
+    double yaw_diff = std::abs(math::WrapToPi(armor_yaw - gimbal_yaw + M_PI));
+    if (yaw_diff < min_yaw_diff)
+    {
+      min_yaw_diff = yaw_diff;
+      target_position = armor_pos.head<3>();
+      target_yaw = armor_yaw;
+      target_velocity = armor_vel;
+    }
+  }
 
   return true;
 }
@@ -523,7 +539,7 @@ NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
 void NeSionModel::predictState(const double        dt,
                                const NeSionState_t x,
                                const AccDate_t&    a,
-                               NeSionState_t&      x_pred) const
+                               NeSionState_t&      x_pred)
 {
   // 位置预测：p' = p + v*dt + 0.5*a*dt^2
   x_pred.p = x.p + x.v * dt + 0.5 * a * dt * dt;
@@ -545,11 +561,6 @@ void NeSionModel::predictState(const double        dt,
   // R1和R2保持不变
   x_pred.R1 = x.R1;
   x_pred.R2 = x.R2;
-
-  if (x_pred.R1 <= 0)
-    x_pred.R1 = 0.3;
-  if (x_pred.R2 <= 0)
-    x_pred.R2 = 0.3;
 }
 
 // 计算过程噪声协方差矩阵Q
@@ -634,6 +645,15 @@ void NeSionModel::h(const NePeriodicNumber_t id,
                     const NeSionState_t&     x,
                     Measurement_t&           z)
 {
+  Eigen::Vector3d d_v; // dummy velocity
+  h(id, x, z, d_v);
+}
+
+void NeSionModel::h(const NePeriodicNumber_t id,
+                    const NeSionState_t&     x,
+                    Measurement_t&           z,
+                    Eigen::Vector3d&         v)
+{
   // 1. 根据id获取对应的装甲板参数
   const double x_z = (id % 2 == 0) ? x.z1 : x.z2; // 根据id选择z1或z2
   const double x_R = (id % 2 == 0) ? x.R1 : x.R2; // 根据id选择R1或R2
@@ -646,6 +666,11 @@ void NeSionModel::h(const NePeriodicNumber_t id,
   z(MEASURE_Y_IDX) = x.p.y() + x_R * std::sin(x.yaw + offset_yaw);
   z(MEASURE_Z_IDX) = x_z;
   z(MEASURE_YAW_IDX) = x.yaw + offset_yaw;
+
+  // 3. 计算目标速度（运动学模型）
+  v.x() = x.v.x() - x_R * std::sin(x.yaw + offset_yaw) * x.omega;
+  v.y() = x.v.y() + x_R * std::cos(x.yaw + offset_yaw) * x.omega;
+  v.z() = 0; // 模型无Z轴速度估计
 }
 
 void NeSionModel::computeH(const NePeriodicNumber_t id,

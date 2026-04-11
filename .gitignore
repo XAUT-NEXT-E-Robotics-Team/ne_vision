@@ -9,3 +9,4 @@ ne_vision_sim/armor_project/
 scripts/__pycache__/
 .cache/
 .venv/
+.DS_Store

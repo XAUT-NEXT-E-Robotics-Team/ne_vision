@@ -35,9 +35,10 @@
 
 #pragma once
 
+#include <deque>
 #include <string>
 
-#include "ne_vision/interfaces/ne_aim_traj.hpp"
+#include "ne_vision/interfaces/ne_aim_state.hpp"
 #include "ne_vision/ne_channals.hpp"
 #include "ne_vision/utils/ne_channel.hpp"
 
@@ -45,6 +46,7 @@
 #include "ne_vision/interfaces/ne_armors_2d.hpp"
 #include "ne_vision/interfaces/ne_debug_frame.hpp"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
+#include "ne_vision/interfaces/ne_gimbal_control_ref.hpp"
 
 #include "ne_vision/debug/ne_data_scope.hpp"
 
@@ -62,19 +64,23 @@ private:
   using NeArmors3DCsPtr_t = std::shared_ptr<NeChannel<NeArmors3D_t>>;
   using NeDebugFrame_t = interfaces::NeDebugFrame_t;
   using NeDebugFrameCsPtr_t = std::shared_ptr<NeChannel<NeDebugFrame_t>>;
-  using NeAimTraj_t = interfaces::NeAimTraj_t;
-  using NeAimTrajCSPtr_t = std::shared_ptr<NeChannel<NeAimTraj_t>>;
+  using NeAimState_t = interfaces::NeAimState_t;
+  using NeAimStateCSPtr_t = std::shared_ptr<NeChannel<NeAimState_t>>;
+  using NeGimbalControlRef_t = interfaces::NeGimbalControlRef_t;
+  using NeGimbalControlRefCSPtr_t =
+      std::shared_ptr<NeChannel<NeGimbalControlRef_t>>;
 
   struct VisPack_t
   {
     // If a data put into the pack, the count will increase by 1.
-    bool           is_matched = false;
-    std::string    match_msg;
-    int            data_count = 0;
-    NeFrameInput_t input;
-    NeArmors2D_t   armors_2d;
-    NeArmors3D_t   armors_3d;
-    NeAimTraj_t    aim_traj;
+    bool                 is_matched = false;
+    std::string          match_msg;
+    int                  data_count = 0;
+    NeFrameInput_t       input;
+    NeArmors2D_t         armors_2d;
+    NeArmors3D_t         armors_3d;
+    NeAimState_t          aim_state;
+    NeGimbalControlRef_t gimbal_control_ref;
   };
 
 public:
@@ -100,9 +106,16 @@ public:
 
   inline void AddAimTrajData()
   {
-    NV_ASSERT(NV_CHANNELS.aim_traj_sPtr() != nullptr &&
+    NV_ASSERT(NV_CHANNELS.aim_state_sPtr() != nullptr &&
               "AimTraj channel must not be null.");
-    channels_.aim_traj_c_sPtr = NV_CHANNELS.aim_traj_sPtr();
+    channels_.aim_state_c_sPtr = NV_CHANNELS.aim_state_sPtr();
+  }
+
+  inline void AddGimbalControlRefData()
+  {
+    NV_ASSERT(NV_CHANNELS.gimbal_control_ref_sPtr() != nullptr &&
+              "GimbalControlRef channel must not be null.");
+    channels_.gimbal_control_ref_c_sPtr = NV_CHANNELS.gimbal_control_ref_sPtr();
   }
 
   void Draw();
@@ -114,24 +127,27 @@ private:
   void drawArmors2D(cv::Mat& frame);
   void drawArmors3D(cv::Mat& frame);
   void drawTrackerResult(cv::Mat& frame);
+  void drawGimbalControlRef(cv::Mat& frame);
 
   cv::Point2d projectToImagePlane(const Eigen::Vector3d& point_3d);
 
   struct
   {
-    NeFrameInputCsPtr_t input_c_sPtr = nullptr;
-    NeArmors2DCsPtr_t   armors2d_c_sPtr = nullptr;
-    NeDebugFrameCsPtr_t debug_frame_c_sPtr = nullptr;
-    NeArmors3DCsPtr_t   armors3d_c_sPtr = nullptr;
-    NeAimTrajCSPtr_t    aim_traj_c_sPtr = nullptr;
+    NeFrameInputCsPtr_t       input_c_sPtr = nullptr;
+    NeArmors2DCsPtr_t         armors2d_c_sPtr = nullptr;
+    NeDebugFrameCsPtr_t       debug_frame_c_sPtr = nullptr;
+    NeArmors3DCsPtr_t         armors3d_c_sPtr = nullptr;
+    NeAimStateCSPtr_t          aim_state_c_sPtr = nullptr;
+    NeGimbalControlRefCSPtr_t gimbal_control_ref_c_sPtr = nullptr;
   } channels_;
 
   struct
   {
-    std::deque<NeFrameInput_t> frame_inputs;
-    std::deque<NeArmors2D_t>   armors_2ds;
-    std::deque<NeArmors3D_t>   armors_3ds;
-    std::deque<NeAimTraj_t>    aim_trajs;
+    std::deque<NeFrameInput_t>       frame_inputs;
+    std::deque<NeArmors2D_t>         armors_2ds;
+    std::deque<NeArmors3D_t>         armors_3ds;
+    std::deque<NeAimState_t>          aim_states;
+    std::deque<NeGimbalControlRef_t> gimbal_control_refs;
   } vis_queue_;
 
   struct
@@ -141,6 +157,13 @@ private:
     Eigen::Matrix3d             camera_matrix_eigen_;
     Eigen::Matrix<double, 5, 1> dist_coeffs_eigen_;
   } pro_param_;
+
+  struct
+  {
+    std::vector<Eigen::Vector3d> small_armor;
+    std::vector<Eigen::Vector3d> large_armor;
+    std::vector<Eigen::Vector3d> outpost_armor;
+  } armor_param_;
 
   NeDataScopeManager scope_mng_;
 

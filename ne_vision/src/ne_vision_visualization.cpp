@@ -87,35 +87,46 @@ NeVisionVisualization::NeVisionVisualization(std::string name)
     pro_param_.dist_coeffs_ = (cv::Mat_<double>(1, 5) << k1, k2, p1, p2, k3);
     pro_param_.dist_coeffs_eigen_ =
         (Eigen::Matrix<double, 5, 1>() << k1, k2, p1, p2, k3).finished();
+
+    // Armor 3D parameters
+    const double small_armor_width =
+        NV_PARAM["rm"]["armor"]["small"]["width"].as<double>();
+    const double small_armor_height =
+        NV_PARAM["rm"]["armor"]["small"]["height"].as<double>();
+    armor_param_.small_armor = std::vector<Eigen::Vector3d>{
+        Eigen::Vector3d(0, small_armor_width / 2.0, small_armor_height / 2.0),
+        Eigen::Vector3d(0, small_armor_width / 2.0, -small_armor_height / 2.0),
+        Eigen::Vector3d(0, -small_armor_width / 2.0, -small_armor_height / 2.0),
+        Eigen::Vector3d(0, -small_armor_width / 2.0, small_armor_height / 2.0)};
+
+    const double large_armor_width =
+        NV_PARAM["rm"]["armor"]["large"]["width"].as<double>();
+    const double large_armor_height =
+        NV_PARAM["rm"]["armor"]["large"]["height"].as<double>();
+    armor_param_.large_armor = std::vector<Eigen::Vector3d>{
+        Eigen::Vector3d(0, large_armor_width / 2.0, large_armor_height / 2.0),
+        Eigen::Vector3d(0, large_armor_width / 2.0, -large_armor_height / 2.0),
+        Eigen::Vector3d(0, -large_armor_width / 2.0, -large_armor_height / 2.0),
+        Eigen::Vector3d(0, -large_armor_width / 2.0, large_armor_height / 2.0)};
+
+    const double outpost_armor_width =
+        NV_PARAM["rm"]["armor"]["outpost"]["width"].as<double>();
+    const double outpost_armor_height =
+        NV_PARAM["rm"]["armor"]["outpost"]["height"].as<double>();
+    armor_param_.outpost_armor = std::vector<Eigen::Vector3d>{
+        Eigen::Vector3d(
+            0, outpost_armor_width / 2.0, outpost_armor_height / 2.0),
+        Eigen::Vector3d(
+            0, outpost_armor_width / 2.0, -outpost_armor_height / 2.0),
+        Eigen::Vector3d(
+            0, -outpost_armor_width / 2.0, -outpost_armor_height / 2.0),
+        Eigen::Vector3d(
+            0, -outpost_armor_width / 2.0, outpost_armor_height / 2.0)};
   }
   catch (const std::exception& e)
   {
     NV_ERROR("Failed to load parameters: {}", e.what());
     std::exit(EXIT_FAILURE);
-  }
-}
-
-void NeVisionVisualization::Draw()
-{
-  receiveAll();
-  if (matchAll())
-  {
-    NeDebugFrame_t debug_frame;
-    cv::Mat        frame = vis_pack_.input.frame;
-
-    drawArmors2D(frame);
-    drawArmors3D(frame);
-    drawTrackerResult(frame);
-
-    debug_frame.frame = frame;
-    channels_.debug_frame_c_sPtr->Transmit(debug_frame);
-
-    // NV_DEBUG("fps: {}",
-    //          NV_PROFILE_INSTANCE("detector")->GetResult().GetCurrentPeriodS()
-    //          *
-    //              1000);
-
-    NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
   }
 }
 
@@ -163,15 +174,28 @@ void NeVisionVisualization::receiveAll()
     }
   }
 
-  if (channels_.aim_traj_c_sPtr)
+  if (channels_.aim_state_c_sPtr)
   {
-    NeAimTraj_t aim_traj;
-    if (channels_.aim_traj_c_sPtr->Receive(aim_traj))
+    NeAimState_t aim_state;
+    if (channels_.aim_state_c_sPtr->Receive(aim_state))
     {
-      vis_queue_.aim_trajs.push_back(aim_traj);
-      while (vis_queue_.aim_trajs.size() > VIS_QUEUE_MAX_SIZE)
+      vis_queue_.aim_states.push_back(aim_state);
+      while (vis_queue_.aim_states.size() > VIS_QUEUE_MAX_SIZE)
       {
-        vis_queue_.aim_trajs.pop_front();
+        vis_queue_.aim_states.pop_front();
+      }
+    }
+  }
+
+  if (channels_.gimbal_control_ref_c_sPtr)
+  {
+    NeGimbalControlRef_t gimbal_control_ref;
+    if (channels_.gimbal_control_ref_c_sPtr->Receive(gimbal_control_ref))
+    {
+      vis_queue_.gimbal_control_refs.push_back(gimbal_control_ref);
+      while (vis_queue_.gimbal_control_refs.size() > VIS_QUEUE_MAX_SIZE)
+      {
+        vis_queue_.gimbal_control_refs.pop_front();
       }
     }
   }
@@ -231,27 +255,53 @@ bool NeVisionVisualization::matchAll()
       vis_pack_.armors_3d = vis_queue_.armors_3ds.front();
     }
 
-    if (channels_.aim_traj_c_sPtr)
+    if (channels_.aim_state_c_sPtr)
     {
-      if (vis_queue_.aim_trajs.empty())
+      if (vis_queue_.aim_states.empty())
       {
         return false;
       }
-      while (!vis_queue_.aim_trajs.empty() &&
-             vis_queue_.aim_trajs.front().cap_stamp < vis_pack_.input.cap_stamp)
+      while (!vis_queue_.aim_states.empty() &&
+             vis_queue_.aim_states.front().cap_stamp <
+                 vis_pack_.input.cap_stamp)
       {
-        vis_queue_.aim_trajs.pop_front();
+        vis_queue_.aim_states.pop_front();
       }
-      if (vis_queue_.aim_trajs.empty())
+      if (vis_queue_.aim_states.empty())
       {
         return false;
       }
-      if (vis_queue_.aim_trajs.front().cap_stamp > vis_pack_.input.cap_stamp)
+      if (vis_queue_.aim_states.front().cap_stamp > vis_pack_.input.cap_stamp)
       {
         vis_queue_.frame_inputs.pop_front();
         continue;
       }
-      vis_pack_.aim_traj = vis_queue_.aim_trajs.front();
+      vis_pack_.aim_state = vis_queue_.aim_states.front();
+    }
+
+    if (channels_.gimbal_control_ref_c_sPtr)
+    {
+      if (vis_queue_.gimbal_control_refs.empty())
+      {
+        return false;
+      }
+      while (!vis_queue_.gimbal_control_refs.empty() &&
+             vis_queue_.gimbal_control_refs.front().cap_stamp <
+                 vis_pack_.input.cap_stamp)
+      {
+        vis_queue_.gimbal_control_refs.pop_front();
+      }
+      if (vis_queue_.gimbal_control_refs.empty())
+      {
+        return false;
+      }
+      if (vis_queue_.gimbal_control_refs.front().cap_stamp >
+          vis_pack_.input.cap_stamp)
+      {
+        vis_queue_.frame_inputs.pop_front();
+        continue;
+      }
+      vis_pack_.gimbal_control_ref = vis_queue_.gimbal_control_refs.front();
     }
 
     vis_queue_.frame_inputs.pop_front();
@@ -263,16 +313,47 @@ bool NeVisionVisualization::matchAll()
     {
       vis_queue_.armors_3ds.pop_front();
     }
-    if (channels_.aim_traj_c_sPtr)
+    if (channels_.aim_state_c_sPtr)
     {
-      vis_queue_.aim_trajs.pop_front();
+      vis_queue_.aim_states.pop_front();
     }
-
+    if (channels_.gimbal_control_ref_c_sPtr)
+    {
+      vis_queue_.gimbal_control_refs.pop_front();
+    }
     vis_pack_.is_matched = true;
 
     return true;
   }
+
   return false;
+}
+
+void NeVisionVisualization::Draw()
+{
+  receiveAll();
+  if (matchAll())
+  {
+    NeDebugFrame_t debug_frame;
+    cv::Mat        frame = vis_pack_.input.frame;
+
+    drawArmors2D(frame);
+    drawArmors3D(frame);
+    drawTrackerResult(frame);
+    drawGimbalControlRef(frame);
+
+    scope_mng_.DrawAll(frame);
+
+    debug_frame.frame = frame;
+    channels_.debug_frame_c_sPtr->Transmit(debug_frame);
+
+    // NV_DEBUG("fps: {}",
+    //          NV_PROFILE_INSTANCE("detector")->GetResult().GetCurrentPeriodS()
+    //          *
+    //              1000);
+
+    NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
+  }
 }
 
 cv::Point2d
@@ -343,44 +424,137 @@ void NeVisionVisualization::drawArmors3D(cv::Mat& frame)
     return;
   }
 
-  for (const auto& each : vis_pack_.armors_3d.armors)
-  {
-    for (size_t i = 0; i < each.debug.re_projected_pts.size(); i++)
-    {
-      cv::line(frame,
-               each.debug.re_projected_pts[i],
-               each.debug.re_projected_pts[(i + 1) %
-                                           each.debug.re_projected_pts.size()],
-               cv::Scalar(0, 0, 255),
-               2);
-    }
-  }
+  // for (const auto& each : vis_pack_.armors_3d.armors)
+  // {
+  //   for (size_t i = 0; i < each.debug.re_projected_pts.size(); i++)
+  //   {
+  //     cv::line(frame,
+  //              each.debug.re_projected_pts[i],
+  //              each.debug.re_projected_pts[(i + 1) %
+  //                                          each.debug.re_projected_pts.size()],
+  //              cv::Scalar(0, 0, 255),
+  //              2);
+  //   }
+  // }
 }
 
 void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
 {
-  if (channels_.aim_traj_c_sPtr == nullptr || !vis_pack_.is_matched)
+  if (channels_.aim_state_c_sPtr == nullptr || !vis_pack_.is_matched)
   {
     return;
   }
 
-  for (const auto& each : vis_pack_.aim_traj.debug.all_armors)
+  const std::string&           armor_id = vis_pack_.aim_state.armor_id;
+  std::vector<Eigen::Vector3d> armor_points;
+  if (armor_id == "1" || armor_id == "base")
   {
-    cv::Point2d projected_pt = projectToImagePlane(each);
-    if (projected_pt.x >= 0 && projected_pt.y >= 0)
+    armor_points = armor_param_.large_armor;
+  }
+  else if (armor_id == "outpost")
+  {
+    armor_points = armor_param_.outpost_armor;
+  }
+  else
+  {
+    // Default to small armor for 2, 3, 4, 7
+    armor_points = armor_param_.small_armor;
+  }
+
+  for (const auto& each : vis_pack_.aim_state.debug.all_armors)
+  {
+    double          yaw = each(3);
+    Eigen::Matrix3d R_Z =
+        Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+    std::vector<cv::Point2d> img_pts;
+    img_pts.reserve(4);
+    for (const auto& corner : armor_points)
     {
-      cv::circle(frame, projected_pt, 3, cv::Scalar(0, 255, 255), -1);
+      Eigen::Vector3d world_pt = R_Z * corner + each.head<3>();
+      img_pts.push_back(projectToImagePlane(world_pt));
+    }
+
+    for (size_t i = 0; i < 4; ++i)
+    {
+      size_t j = (i + 1) % 4;
+      if (img_pts[i].x >= 0 && img_pts[i].y >= 0 && img_pts[j].x >= 0 &&
+          img_pts[j].y >= 0)
+      {
+        cv::line(frame, img_pts[i], img_pts[j], cv::Scalar(230, 158, 202), 1);
+      }
     }
   }
   scope_mng_.AddText("m_dis",
-                     cv::format("%.2f", vis_pack_.aim_traj.debug.model_dis));
+                     cv::format("%.2f", vis_pack_.aim_state.debug.model_dis));
   scope_mng_.AddText("m_omega",
-                     cv::format("%.2f", vis_pack_.aim_traj.debug.model_omega));
+                     cv::format("%.2f", vis_pack_.aim_state.debug.model_omega));
   scope_mng_.AddPoint("m_yaw",
-                      vis_pack_.aim_traj.cap_stamp,
-                      vis_pack_.aim_traj.debug.model_yaw);
+                      vis_pack_.aim_state.cap_stamp,
+                      vis_pack_.aim_state.debug.model_yaw);
+}
 
-  scope_mng_.DrawAll(frame);
+void NeVisionVisualization::drawGimbalControlRef(cv::Mat& frame)
+{
+  if (channels_.gimbal_control_ref_c_sPtr == nullptr || !vis_pack_.is_matched)
+  {
+    return;
+  }
+
+  if (!vis_pack_.gimbal_control_ref.valid)
+  {
+    return;
+  }
+
+  const std::string&           armor_id = vis_pack_.gimbal_control_ref.armor_id;
+  std::vector<Eigen::Vector3d> armor_points;
+  if (armor_id == "1" || armor_id == "base")
+  {
+    armor_points = armor_param_.large_armor;
+  }
+  else if (armor_id == "outpost")
+  {
+    armor_points = armor_param_.outpost_armor;
+  }
+  else
+  {
+    armor_points = armor_param_.small_armor;
+  }
+
+  const Eigen::Vector4d& target_armor_xzyyaw =
+      vis_pack_.gimbal_control_ref.debug.target_armor_xyzy;
+  const double yaw = target_armor_xzyyaw(3);
+  // NV_DEBUG("YAW{}", yaw);
+  Eigen::Matrix3d R_Z =
+      Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
+  // debug pose uses [x, z, y, yaw], convert to [x, y, z] for rendering.
+  Eigen::Vector3d target_center_xyz(
+      target_armor_xzyyaw(0), target_armor_xzyyaw(2), target_armor_xzyyaw(1));
+
+  std::vector<cv::Point2d> img_pts;
+  img_pts.reserve(4);
+  for (const auto& corner : armor_points)
+  {
+    Eigen::Vector3d world_pt = R_Z * corner + target_center_xyz;
+    img_pts.push_back(projectToImagePlane(world_pt));
+  }
+
+  for (size_t i = 0; i < 4; ++i)
+  {
+    size_t j = (i + 1) % 4;
+    if (img_pts[i].x >= 0 && img_pts[i].y >= 0 && img_pts[j].x >= 0 &&
+        img_pts[j].y >= 0)
+    {
+      cv::line(frame, img_pts[i], img_pts[j], cv::Scalar(0, 0, 255), 1);
+    }
+  }
+
+  cv::Point2d center_img = projectToImagePlane(target_center_xyz);
+  if (center_img.x >= 0 && center_img.y >= 0)
+  {
+    cv::circle(frame, center_img, 3, cv::Scalar(0, 0, 255), -1);
+  }
 }
 
 } // namespace ne_vision

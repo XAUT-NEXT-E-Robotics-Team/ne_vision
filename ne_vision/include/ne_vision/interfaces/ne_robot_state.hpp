@@ -33,6 +33,8 @@
 // 存放颜色，弹速等重要信息
 //
 
+#pragma once
+
 namespace ne_vision
 {
 
