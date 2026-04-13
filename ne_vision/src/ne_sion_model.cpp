@@ -33,6 +33,7 @@
 //
 
 #include "ne_vision/models/ne_sion_model.hpp"
+#include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_math.hpp"
 #include "ne_vision/utils/ne_param.hpp"
@@ -41,6 +42,7 @@
 
 #include "ne_vision/debug/ne_vision_visualization.hpp"
 #include "ne_vision/utils/ne_rerun_debug.hpp"
+#include "ne_vision/ne_channals.hpp"
 #include <Eigen/src/Core/Matrix.h>
 #include <vector>
 
@@ -53,13 +55,54 @@ namespace sion
 
 /* === AIM PREDICTOR 用来后续规划器预测 === */
 
-bool NeSionAimPredictor::Predict(double                         dt,
+void NeSionAimPredictor::Init()
+{
+  if (is_init_predicted_)
+    return;
+
+  auto current_stamp = GetCapStamp();
+
+  // 使用NV_CHANNELS直接获取所需的IMU历史数据
+  auto imu_history = NV_CHANNELS.imu_data_sPtr()->GetDataSince(
+      current_stamp,
+      [](const interfaces::NeImuData_t& imu) { return imu.receive_stamp; });
+
+  // 使用所有的有效IMU历史帧进行高频全量积分，剥离滞后的延迟
+  for (const auto& imu : imu_history)
+  {
+    if (imu.receive_stamp <= current_stamp)
+      continue;
+
+    double dt_step =
+        std::chrono::duration<double>(imu.receive_stamp - current_stamp)
+            .count();
+    if (dt_step <= 0.0)
+      continue;
+
+    // 提取加速度并积分状态
+    Eigen::Vector2d a_step;
+    a_step.x() = imu.acc.x();
+    a_step.y() = imu.acc.y();
+
+    NeSionState_t x_pred_step;
+    NeSionModel::predictState(dt_step, state_, a_step, x_pred_step);
+    state_ = x_pred_step;
+
+    current_stamp = imu.receive_stamp;
+  }
+
+  is_init_predicted_ = true;
+}
+
+void NeSionAimPredictor::Predict(double                         dt,
                                  const interfaces::NeImuData_t& imu_data,
                                  Eigen::Vector3d&               target_position,
                                  double&                        target_yaw,
                                  Eigen::Vector3d& target_velocity) const
 {
   // 选板和预测
+  NV_ASSERT(is_init_predicted_ &&
+            "Aim predictor must be initialized before prediction!");
 
   // 1. 预测一段时间
   NeSionState_t   x_pred;
@@ -88,42 +131,6 @@ bool NeSionAimPredictor::Predict(double                         dt,
       target_velocity = armor_vel;
     }
   }
-
-  return true;
-}
-
-std::shared_ptr<interfaces::NeAimPredictorBase> NeSionModel::GetAimPredictor(
-    std::chrono::steady_clock::time_point       cap_stamp,
-    std::chrono::steady_clock::time_point       imu_stamp,
-    const std::vector<interfaces::NeImuData_t>& imu_history) const
-{
-  NeSionState_t fast_state = GetState();
-  auto          current_stamp = cap_stamp;
-
-  // 使用所有的有效IMU历史帧进行高频全量积分，剥离滞后的延迟
-  for (const auto& imu : imu_history)
-  {
-    if (imu.receive_stamp <= current_stamp)
-      continue;
-
-    double dt = std::chrono::duration<double>(imu.receive_stamp - current_stamp)
-                    .count();
-    if (dt <= 0.0)
-      continue;
-
-    // 提取加速度并积分状态
-    AccDate_t a;
-    a.x() = 0.0; // imu.acc.x();
-    a.y() = 0.0; // imu.acc.y();
-
-    NeSionState_t x_pred;
-    predictState(dt, fast_state, a, x_pred);
-    fast_state = x_pred;
-
-    current_stamp = imu.receive_stamp;
-  }
-
-  return std::make_shared<NeSionAimPredictor>(cap_stamp, imu_stamp, fast_state);
 }
 
 NeSionModel::NeSionModel(const interfaces::NeArmors3D_t& init_armors)

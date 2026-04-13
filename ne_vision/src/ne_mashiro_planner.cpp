@@ -56,6 +56,22 @@ namespace ne_vision
 
 NeMashiroPlanner::NeMashiroPlanner(std::string name) : name_(std::move(name))
 {
+  // 读取弹丸类型并新建弹道补偿
+  auto b_type =
+      NV_PARAM["hardware"]["muzzle"]["ball_type"].as<std::string>("small");
+  if (b_type != "small" && b_type != "large")
+  {
+    NV_ERROR("Invalid ball type in config: %s. Must be 'small' or 'large'.",
+             b_type.c_str());
+    throw std::runtime_error("Invalid ball type in config");
+  }
+  else
+  {
+    NV_INFO("Ball type: %s", b_type.c_str());
+    Com_ptr_->ball_type = b_type;
+  }
+  bm_.judgeK1();
+
   // 读取参数
   auto   param_node = NV_PARAM["auto_aim"]["mashiro_planner"];
   double q_y_pos = param_node["q_y_pos"].as<double>(100.0);
@@ -70,6 +86,10 @@ NeMashiroPlanner::NeMashiroPlanner(std::string name) : name_(std::move(name))
   double max_p_vel = param_node["max_p_vel"].as<double>(10.0);
   double max_y_acc = param_node["max_y_acc"].as<double>(20.0);
   double max_p_acc = param_node["max_p_acc"].as<double>(20.0);
+
+  // 额外预测时间
+  params_.additional_predict_time =
+      param_node["additional_predict_time"].as<double>(0.0);
 
   // 设置几个矩阵
   mpc_mats_.Adyn.resize(kStateDim, kStateDim);
@@ -152,9 +172,15 @@ void NeMashiroPlanner::Plan()
     NV_WARN("Waiting for robot state...");
   }
 
-  // 先行转换
-  double current_yaw = math::QuaternionToYaw(aim_state_i.newest_imu.quat);
-  double current_pitch = math::QuaternionToPitch(aim_state_i.newest_imu.quat);
+  // 读取IMU并转换
+  interfaces::NeImuData_t current_imu;
+  if (!NV_CHANNELS.imu_data_sPtr()->Receive(current_imu))
+  {
+    NV_WARN("Waiting for IMU data...");
+    return;
+  }
+  double current_yaw = math::QuaternionToYaw(current_imu.quat);
+  double current_pitch = math::QuaternionToPitch(current_imu.quat);
 
   // 创建消息，并填写最基本的内容
   interfaces::NeGimbalControlRef_t gimbal_control_ref_o;
@@ -182,12 +208,16 @@ void NeMashiroPlanner::Plan()
     return;
   }
 
+  // 初始化即进行进行预测，将时间从cap_stamp推到最新IMU时间（不是当前时间）
+  aim_state_i.aim_predictor->Init();
+
   // 1. 基础预测时间，就是 现在时间-最新IMU + 该任务执行时间 + 额外预测时间
+  // TODO: 该任务执行时间是否需要考虑
   double imu_to_new_time =
       std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                     aim_state_i.aim_predictor->GetImuStamp())
           .count();
-  double base_dt = imu_to_new_time + 0;
+  double base_dt = imu_to_new_time + params_.additional_predict_time;
 
   // 2. 填时间
   gimbal_control_ref_o.predicted_stamp =
@@ -197,28 +227,18 @@ void NeMashiroPlanner::Plan()
 
   // 3. 由于控制延迟，预测云台初始状态
 
-  // 预测 base_dt 时间后的云台状态，该状态作为MPC规划器的初始状态
+  // 预测 additional_predict_time
+  // 时间后的云台状态，该状态作为MPC规划器的初始状态。
   double pred_gimbal_yaw =
-      current_yaw + aim_state_i.newest_imu.gyro.z() * base_dt;
+      current_yaw + current_imu.gyro.z() * params_.additional_predict_time;
   double pred_gimbal_pitch =
-      current_pitch + aim_state_i.newest_imu.gyro.y() * base_dt;
+      current_pitch + current_imu.gyro.y() * params_.additional_predict_time;
 
   /* === 正式走MPC流程 ==== */
   // 1. 填入初始云台pitch yaw 以及对应速度
   Vec_x_t x;
-  x << pred_gimbal_yaw, aim_state_i.newest_imu.gyro.z(), pred_gimbal_pitch,
-      aim_state_i.newest_imu.gyro.y();
-
-  // // ----- 测试代码: 将初始状态强制设为上次规划的轨迹期望值 -----
-  // static bool    has_last_planned_x = false;
-  // static Vec_x_t last_planned_x;
-  // if (has_last_planned_x)
-  // {
-  //   x = last_planned_x;
-  //   pred_gimbal_yaw = x(0); // 同步给下面的 last_target_yaw 使用
-  //   pred_gimbal_pitch = x(2);
-  // }
-  // ----------------------------------------------------
+  x << pred_gimbal_yaw, current_imu.gyro.z(), pred_gimbal_pitch,
+      current_imu.gyro.y();
 
   // 2. 动态计算并填入此时的约束
   // TODO: 根据小陀螺状态动态计算约束
@@ -231,10 +251,6 @@ void NeMashiroPlanner::Plan()
   // 3. 迭代弹道补偿和预测，更新参考轨迹
   TinyWorkspace* work_ptr = solver_ptr_->work;
 
-  // 用于微分角速度
-  double last_target_yaw = pred_gimbal_yaw;
-  double last_target_pitch = pred_gimbal_pitch;
-
   for (int i = 0; i < params_.horizon; ++i)
   {
     double extra_dt = base_dt + i * params_.step;
@@ -243,86 +259,50 @@ void NeMashiroPlanner::Plan()
     target_xzyyaw.setZero();
     Eigen::Array4d target_angle_and_angular_v;
     target_angle_and_angular_v.setZero();
-    if (!predictTargetPose(aim_state_i.aim_predictor,
-                           extra_dt,
-                           aim_state_i.newest_imu,
-                           target_xzyyaw,
-                           target_angle_and_angular_v))
-    {
-      NV_WARN("Failed to predict target pose for MPC compensation");
-      // 无论是什么错误都别忘了发数据
-      NV_CHANNELS.gimbal_control_ref_sPtr()->Transmit(gimbal_control_ref_o);
-      return;
-    }
+    predictTargetPose(aim_state_i.aim_predictor,
+                      extra_dt,
+                      current_imu,
+                      target_xzyyaw,
+                      target_angle_and_angular_v);
 
     // 将第一次的预测结果保存下来，用来可视化选板
     if (i == 0)
+    {
       gimbal_control_ref_o.debug.target_armor_xyzy = target_xzyyaw;
+    }
 
     // 存储序列用于优化
+    // 注意顺序
     work_ptr->Xref(0, i) = target_angle_and_angular_v(0);
     work_ptr->Xref(1, i) = target_angle_and_angular_v(2);
     work_ptr->Xref(2, i) = target_angle_and_angular_v(1);
     work_ptr->Xref(3, i) = target_angle_and_angular_v(3);
+  }
 
-    last_target_yaw = target_angle_and_angular_v(0);
-    last_target_pitch = target_angle_and_angular_v(1);
+  // 4. 算
+  tiny_set_x0(solver_ptr_, x);
+  tiny_solve(solver_ptr_);
+
+  // 5. 填入结果
+  gimbal_control_ref_o.yaw_ref = work_ptr->x(0, 1);
+  gimbal_control_ref_o.yaw_v_ref = work_ptr->x(1, 1);
+  gimbal_control_ref_o.pitch_ref = work_ptr->x(2, 1);
+  gimbal_control_ref_o.pitch_v_ref = work_ptr->x(3, 1);
+
+  gimbal_control_ref_o.debug.yaw_local_traj.clear();
+  gimbal_control_ref_o.debug.pitch_local_traj.clear();
+  for (int i = 0; i < params_.horizon; ++i)
+  {
+    gimbal_control_ref_o.debug.yaw_local_traj.push_back(work_ptr->x(0, i));
+    gimbal_control_ref_o.debug.pitch_local_traj.push_back(work_ptr->x(2, i));
   }
 
   // 发消息
   gimbal_control_ref_o.valid = true;
   NV_CHANNELS.gimbal_control_ref_sPtr()->Transmit(gimbal_control_ref_o);
-
-  // // 4. 算
-  // tiny_set_x0(solver_ptr_, x);
-  // tiny_solve(solver_ptr_);
-
-  // // 5. 导出规划结果轨迹
-  // auto yaw_traj = work_ptr->x.row(0);
-  // auto pitch_traj = work_ptr->x.row(2);
-  // auto yaw_vel_traj = work_ptr->x.row(1);
-  // auto pitch_vel_traj = work_ptr->x.row(3);
-
-  // // 利用 Rerun 记录并展示规划结果与期望值之间的关系
-  // std::vector<double> log_planned_yaw(params_.horizon);
-  // std::vector<double> log_ref_yaw(params_.horizon);
-  // for (int i = 0; i < params_.horizon; ++i)
-  // {
-  //   log_planned_yaw[i] = yaw_traj(i);
-  //   log_ref_yaw[i] = work_ptr->Xref(0, i);
-  // }
-
-  // NeRerunDebug::GetInstance().EnableRealtimeDebug();
-  // NV_REC_LOG(name_ + "/planned_yaw_traj",
-  //            rerun::SeriesLines()
-  //                .with_names("planned_yaw")
-  //                .with_colors({{0, 255, 0}}));
-  // NV_REC_LOG(name_ + "/planned_yaw_traj", rerun::Scalars(log_planned_yaw));
-  // NV_REC_LOG(
-  //     name_ + "/ref_yaw_traj",
-  //     rerun::SeriesLines().with_names("ref_yaw").with_colors({{255, 0, 0}}));
-  // NV_REC_LOG(name_ + "/ref_yaw_traj", rerun::Scalars(log_ref_yaw));
-
-  // // ----- 测试代码: 记录规划后的下一个节点用于下次测试 -----
-  // if (params_.horizon > 1)
-  // {
-  //   last_planned_x << yaw_traj(1), yaw_vel_traj(1), pitch_traj(1),
-  //       pitch_vel_traj(1);
-  //   has_last_planned_x = true;
-  // }
-  // // ------------------------------------------------------
-
-  // // NV_REC_LOG(name_ + "/planned_yaw_traj", rerun::Scalars(yaw_traj.data(),
-  // // params_.horizon));
-  // double          yawyaw = 0;
-  // double          pitchpitch = 0;
-  // Eigen::Vector3d target_pos;
-  // aim_state_i.aim_predictor->Predict(
-  //     base_dt, aim_state_i.newest_imu, target_pos, yawyaw);
-  // NV_REC_LOG(name_ + "/predicted_target_yaw", rerun::Scalars(yawyaw));
 }
 
-bool NeMashiroPlanner::predictTargetPose(
+void NeMashiroPlanner::predictTargetPose(
     const std::shared_ptr<interfaces::NeAimPredictorBase>& predictor,
     double                                                 extra_dt,
     const interfaces::NeImuData_t&                         imu_data,
@@ -330,32 +310,30 @@ bool NeMashiroPlanner::predictTargetPose(
     Eigen::Array4d& target_angle_and_angular_v_out)
 {
   if (!predictor)
-    return false;
+    return;
 
   auto calculatePose = [&](double           delta_t,
                            Eigen::Vector3d& target_pos,
+                           Eigen::Vector3d& target_vel,
                            double&          yaw,
-                           double&          pitch) -> bool {
-    YUKINO::BallisticModel bm;
-    double                 fly_time = 0.0;
+                           double&          pitch) {
+    double fly_time = 0.0;
 
     // 设置弹速
     // NJQ你全局指针几个意思啊
-    if (Com_ptr_)
-      Com_ptr_->muzzle_v = 20;
+    NV_ASSERT(Com_ptr_ && "Com_ptr_ is null, cannot set bullet speed");
+    Com_ptr_->muzzle_v = robot_state_i_.bullet_speed;
 
     for (int i = 0; i < 5; ++i)
     {
-      Eigen::Vector3d target_vel;
-      if (!predictor->Predict(
-              delta_t + fly_time, imu_data, target_pos, yaw, target_vel))
-        return false;
+      predictor->Predict(
+          delta_t + fly_time, imu_data, target_pos, yaw, target_vel);
 
       double distance = std::hypot(target_pos.x(), target_pos.y());
       double height = target_pos.z();
 
-      double cur_pitch = bm.Cal_TargetposPitch(distance, height, 0.0, 0.0);
-      double new_fly_time = bm.get_ft(distance, cur_pitch);
+      double cur_pitch = bm_.Cal_TargetposPitch(distance, height, 0.0, 0.0);
+      double new_fly_time = bm_.get_ft(distance, cur_pitch);
 
       pitch = cur_pitch;
 
@@ -364,33 +342,38 @@ bool NeMashiroPlanner::predictTargetPose(
 
       fly_time = new_fly_time;
     }
-    return true;
   };
 
-  Eigen::Vector3d target_pos_1;
-  double          yaw1 = 0.0;
-  double          pitch1 = 0.0;
-  if (!calculatePose(extra_dt, target_pos_1, yaw1, pitch1))
-    return false;
+  Eigen::Vector3d target_pos;
+  Eigen::Vector3d target_vel;
+  double          yaw = 0.0;
+  double          pitch = 0.0;
+  calculatePose(extra_dt, target_pos, target_vel, yaw, pitch);
 
   // 输出顺序: [x, z, y, yaw]
-  target_xzyyaw_out << target_pos_1.x(), target_pos_1.z(), target_pos_1.y(),
-      yaw1;
+  target_xzyyaw_out << target_pos.x(), target_pos.z(), target_pos.y(), yaw;
 
-  double          epsilon = 0.001; // 1ms duration for derivative
-  Eigen::Vector3d target_pos_2;
-  double          yaw2 = 0.0;
-  double          pitch2 = 0.0;
-  if (!calculatePose(extra_dt + epsilon, target_pos_2, yaw2, pitch2))
-    return false;
+  double distance2 =
+      target_pos.x() * target_pos.x() + target_pos.y() * target_pos.y();
+  double distance = std::sqrt(distance2);
 
-  const double yaw_v = math::WrapToPi(yaw2 - yaw1) / epsilon;
-  const double pitch_v = math::WrapToPi(pitch2 - pitch1) / epsilon;
+  double yaw_v = 0.0;
+  double pitch_v = 0.0;
+  if (distance2 > 1e-5)
+  {
+    yaw_v =
+        (target_pos.x() * target_vel.y() - target_pos.y() * target_vel.x()) /
+        distance2;
+    double distance3d2 = distance2 + target_pos.z() * target_pos.z();
+    double distance_v =
+        (target_pos.x() * target_vel.x() + target_pos.y() * target_vel.y()) /
+        distance;
+    pitch_v =
+        (distance * target_vel.z() - target_pos.z() * distance_v) / distance3d2;
+  }
 
   // 输出顺序: [yaw, pitch, yaw_v, pitch_v]
-  target_angle_and_angular_v_out << yaw1, pitch1, yaw_v, pitch_v;
-
-  return true;
+  target_angle_and_angular_v_out << yaw, pitch, yaw_v, pitch_v;
 }
 
 } // namespace ne_vision

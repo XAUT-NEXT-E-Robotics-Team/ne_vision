@@ -56,8 +56,8 @@ float BallisticModel::Cal_TargetposPitch(float x,
     // 考虑偏移
     Drop_OssneHeight = Cal_OssneHeight(
         x - (cos(cal_pitch) * x_offset - sin(cal_pitch) * Ossne_offset),
-        cal_pitch); // 根据模型计算落点高度
-    Actual_error = OssneHeight - Drop_OssneHeight;               // 更新误差
+        cal_pitch);                                // 根据模型计算落点高度
+    Actual_error = OssneHeight - Drop_OssneHeight; // 更新误差
     aim_ossne = aim_ossne + Actual_error * ITERATE_SCALE_FACTOR; // 误差补偿
     count++;
     if (fabs(Actual_error) < PRECISION)
@@ -71,5 +71,35 @@ float BallisticModel::Cal_TargetposPitch(float x,
     //        count);
   }
   return -cal_pitch;
+}
+
+void BallisticModel::Cal_BulletPosition(float            pitch,
+                                        float            time_s,
+                                        float            x_offset,
+                                        Eigen::Vector3d& pos)
+{
+  pos.setZero();
+  if (std::abs(Com_ptr_->muzzle_v) < 0.1f || Com_ptr_->K1 < 1e-6f)
+  {
+    return;
+  }
+
+  // 弹道学公式：水平飞行距离 x_flight = ln(1 + t * K1 * v0 * cos(pitch)) / K1
+  float flight_x =
+      logf(1.0f + time_s * Com_ptr_->K1 * Com_ptr_->muzzle_v * cosf(pitch)) /
+      Com_ptr_->K1;
+  // 弹道学公式：竖直下落距离 z_flight = v0 * sin(pitch) * t - 0.5 * g * t^2
+  float flight_z = Com_ptr_->muzzle_v * sinf(pitch) * time_s -
+                   0.5f * GRAVITY * time_s * time_s;
+
+  // 考虑弹丸并不是从云台直接发射，需加上云台到枪口的偏移(沿枪管方向x_offset)
+  float x_total = flight_x + x_offset * cosf(pitch);
+  float z_total = flight_z + x_offset * sinf(pitch);
+
+  // 设为 Eigen(x,y,z) 只不过y项为0
+  // （如果在云台/世界系，往往将水平面视为 X, 垂直平面视为 Z, 横向视为 Y）
+  pos.x() = x_total;
+  pos.y() = 0.0;
+  pos.z() = z_total;
 }
 } // namespace YUKINO

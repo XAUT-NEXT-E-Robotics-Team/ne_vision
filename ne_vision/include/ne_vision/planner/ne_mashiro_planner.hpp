@@ -38,6 +38,7 @@
 #include "ne_vision/interfaces/types/ne_aim_predictor.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/interfaces/ne_robot_state.hpp"
+#include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
 
 namespace ne_vision
 {
@@ -65,7 +66,7 @@ public:
 private:
   // 迭代弹道补偿和预测
   // 用于根据预测时间dt，获取结果yaw pitch
-  bool predictTargetPose(
+  void predictTargetPose(
       const std::shared_ptr<interfaces::NeAimPredictorBase>& predictor,
       double                                                 extra_dt,
       const interfaces::NeImuData_t&                         imu_data,
@@ -106,9 +107,14 @@ private:
 
     // 弹道补偿迭代次数，基本上时间都打差不差，建议不要设置太大
     int predict_compensation_iterations = 5;
+
+    // 额外预测时间
+    double additional_predict_time = 0.0;
   } params_;
 
   interfaces::NeRobotState_t robot_state_i_;
+
+  YUKINO::BallisticModel bm_;
 
   std::string name_;
 };

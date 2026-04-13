@@ -4,6 +4,10 @@
 #include <cmath>
 #include <memory.h>
 #include <functional>
+#include <vector>
+#include <Eigen/Core>
+#include <Eigen/Dense>
+
 namespace YUKINO
 {
 class BallisticModel
@@ -20,6 +24,12 @@ public:
                            float OssneHeight,
                            float x_offset,
                            float Ossne_offset); // 计算pitch
+
+  // 新增：根据pitch和飞行时间计算弹丸在相机/云台坐标系下的3D位置，通过参数pos输出
+  void Cal_BulletPosition(float            pitch,
+                          float            time_s,
+                          float            x_offset,
+                          Eigen::Vector3d& pos);
 };
 } // namespace YUKINO
 #endif

@@ -61,10 +61,6 @@ struct NeAimState_t
   // 被线程间传递时的安全拷贝与销毁机制
   std::shared_ptr<NeAimPredictorBase> aim_predictor;
 
-  // 预测器生成时的最新IMU
-  // 如果没有目标，该IMU无效
-  interfaces::NeImuData_t newest_imu;
-
   struct
   {
     std::vector<Eigen::Vector4d> all_armors;  // x y z yaw

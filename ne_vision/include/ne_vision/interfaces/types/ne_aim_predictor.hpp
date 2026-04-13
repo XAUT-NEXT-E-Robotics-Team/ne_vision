@@ -88,11 +88,17 @@ public:
    * @return true 预测成功
    * @return false 预测失败（如时间远超置信范围无法预测等情况）
    */
-  virtual bool Predict(double             dt,
+  virtual void Predict(double             dt,
                        const NeImuData_t& imu_data,
                        Eigen::Vector3d&   target_position,
                        double&            target_yaw,
                        Eigen::Vector3d&   target_velocity) const = 0;
+
+  /**
+   * @brief 初始化预测器（包含全量积分运算等准备工作）
+   */
+  virtual void Init() = 0;
+
   /**
    * @brief 获取拍摄/捕捉时刻的时间戳（线程安全）
    */

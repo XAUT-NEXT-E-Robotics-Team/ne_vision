@@ -158,23 +158,30 @@ public:
   NeSionAimPredictor(std::chrono::steady_clock::time_point cap_stamp,
                      std::chrono::steady_clock::time_point imu_stamp,
                      const NeSionState_t&                  state)
-      : interfaces::NeAimPredictorBase(cap_stamp, imu_stamp), state_(state)
+      : interfaces::NeAimPredictorBase(cap_stamp, imu_stamp), state_(state),
+        is_init_predicted_(false)
   {
   }
 
   virtual ~NeSionAimPredictor() = default;
 
   /**
+   * @brief 初始化预测器（包含全量积分运算等准备工作）
+   */
+  void Init() override;
+
+  /**
    * @brief 在预测窗口执行状态转移和视线解算
    */
-  bool Predict(double                         dt,
+  void Predict(double                         dt,
                const interfaces::NeImuData_t& imu_data,
                Eigen::Vector3d&               target_position,
                double&                        target_yaw,
                Eigen::Vector3d&               target_velocity) const override;
 
 private:
-  NeSionState_t state_; // 固化的状态副本，保证线程安全
+  mutable NeSionState_t state_;    // 固化的状态副本，保证线程安全
+  mutable bool is_init_predicted_; // 是否已经执行了针对历史IMU的预测积分
 };
 
 class NeSionModel final
@@ -211,12 +218,6 @@ public:
   PredictAndChoose(const interfaces::NeImuData_t& imu_data,
                    double                         b_ds,
                    std::vector<Eigen::Vector3d>&  all_pred_armors);
-
-  // 获取生成器接口，供轨迹传输给MPC调用
-  std::shared_ptr<interfaces::NeAimPredictorBase> GetAimPredictor(
-      std::chrono::steady_clock::time_point       cap_stamp,
-      std::chrono::steady_clock::time_point       imu_stamp,
-      const std::vector<interfaces::NeImuData_t>& imu_history) const;
 
   NeSionState_t GetState() const
   {

@@ -19,6 +19,10 @@ auto_aim:
     max_p_vel: 10.0 # pitch
     max_y_acc: 20.0
     max_p_acc: 20.0
+    # 规划器预测的额外预测时间，即从最新IMU数据开始后需要后推的时间
+    # 改时间主要包含 1. 后续算法延迟 2. 通讯延迟 3. 电控响应延迟 4. 拨弹丸延迟
+    # 规划器期望的是，在弹丸出射的那一刻时，云台的位姿态。因为飞行已经被考虑
+    additional_predict_time: 0.1
   tracker_3d:
     sion_model:
       # 初始参数
@@ -77,6 +81,13 @@ hardware:
         x: 0.0
         y: 0.0
         z: 0.0
+  muzzle:
+    gimbal_to_muzzle:
+      # 云台到枪口的变换
+      t: # 平移向量（米）
+        x: 0.1
+    # 只能是small或large
+    ball_type: small
 
 rm:
   armor:

@@ -140,11 +140,8 @@ DO_NORMAL_TRACKING:
       auto newest_imu = imu_history.empty() ? imu_data_i_ : imu_history.back();
 
       // 将cap_stamp处的状态后推到imu_received_stamp（还不是当前时间）
-      aim_state_o.aim_predictor = sion.GetAimPredictor(
-          armors_3d_i_.cap_stamp, newest_imu.receive_stamp, imu_history);
-
-      // 记录预测器生成时的最新IMU
-      aim_state_o.newest_imu = newest_imu;
+      aim_state_o.aim_predictor = std::make_shared<sion::NeSionAimPredictor>(
+          armors_3d_i_.cap_stamp, newest_imu.receive_stamp, sion.GetState());
 
       // 目标存在
       aim_state_o.has_target = true;
@@ -157,7 +154,6 @@ DO_NORMAL_TRACKING:
   else
   {
     aim_state_o.has_target = false;
-    aim_state_o.newest_imu = imu_data_i_;
     aim_state_o.aim_predictor = nullptr;
   }
 SEND:

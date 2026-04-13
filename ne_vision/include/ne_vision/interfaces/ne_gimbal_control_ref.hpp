@@ -37,6 +37,7 @@
 
 #include <string>
 #include <chrono>
+#include <vector>
 
 namespace ne_vision
 {
@@ -68,7 +69,9 @@ struct NeGimbalControlRef_t
   struct debug_t
   {
     // 选板的装甲板pose x y z yaw
-    Eigen::Vector4d target_armor_xyzy;
+    Eigen::Vector4d     target_armor_xyzy;
+    std::vector<double> yaw_local_traj;
+    std::vector<double> pitch_local_traj;
   } debug;
 };
 
