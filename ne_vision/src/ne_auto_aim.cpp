@@ -213,6 +213,7 @@ void NeAutoAim::AutoAim()
     current_state_ = NeAutoAimState_e::IDLE;
     return;
   }
+
   current_result_.control_ref.yaw = msg.yaw_ref;
   current_result_.control_ref.pitch = msg.pitch_ref;
   current_result_.control_ref.yaw_v = msg.yaw_v_ref;

@@ -130,7 +130,7 @@ void NeSionAimPredictor::Predict(double                         dt,
     {
       min_yaw_diff = yaw_diff;
       target_position = armor_pos.head<3>();
-      target_yaw = armor_yaw;
+      target_yaw = atan2(target_position.y(), target_position.x());
       target_velocity = armor_vel;
     }
   }
@@ -463,17 +463,29 @@ void NeSionModel::checkMultipleModel(const Models_t& models)
 // 发散返回True
 void NeSionModel::adaptiveQAndDivergenceCheck(ModelStatus_t& model, double nis)
 {
-  if (nis > params_.divergence_threshold)
+
+  // TODO: 发散检测
+  // if (nis > params_.divergence_threshold)
+  //   model.divergence_count++;
+  // else
+  //   model.divergence_count = 0;
+
+  // 硬性条件发散检测
+  if (model.esikf_data.x.omega >= params_.max_omega ||
+      model.esikf_data.x.omega <= -params_.max_omega ||
+      model.esikf_data.x.R1 >= params_.max_R ||
+      model.esikf_data.x.R2 >= params_.max_R ||
+      model.esikf_data.x.R1 <= params_.min_R ||
+      model.esikf_data.x.R2 <= params_.min_R)
     model.divergence_count++;
   else
     model.divergence_count = 0;
 
-  // TODO: 发散检测
-  // if (model.divergence_count > params_.max_divergence_count)
-  // {
-  //   model.is_diverged = true;
-  //   return;
-  // }
+  if (model.divergence_count > params_.max_divergence_count)
+  {
+    model.is_diverged = true;
+    return;
+  }
 
   // 自适应Q调节
   double scale_factor = nis / 4.0;

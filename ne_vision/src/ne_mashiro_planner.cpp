@@ -284,6 +284,10 @@ void NeMashiroPlanner::Plan()
     if (i == 0)
     {
       gimbal_control_ref_o.debug.target_armor_xyzy = target_xzyyaw;
+      gimbal_control_ref_o.debug.aim_yaw = target_angle_and_angular_v(0);
+      gimbal_control_ref_o.debug.aim_pitch = target_angle_and_angular_v(1);
+      gimbal_control_ref_o.debug.aim_yaw_v = target_angle_and_angular_v(2);
+      gimbal_control_ref_o.debug.aim_pitch_v = target_angle_and_angular_v(3);
     }
 
     // 存储序列用于优化
@@ -299,10 +303,15 @@ void NeMashiroPlanner::Plan()
   tiny_solve(solver_ptr_);
 
   // 5. 填入结果
-  gimbal_control_ref_o.yaw_ref = work_ptr->x(0, 1);
-  gimbal_control_ref_o.yaw_v_ref = work_ptr->x(1, 1);
-  gimbal_control_ref_o.pitch_ref = work_ptr->x(2, 1);
-  gimbal_control_ref_o.pitch_v_ref = work_ptr->x(3, 1);
+  // gimbal_control_ref_o.yaw_ref = work_ptr->x(0, 1);
+  // gimbal_control_ref_o.yaw_v_ref = work_ptr->x(1, 1);
+  // gimbal_control_ref_o.pitch_ref = work_ptr->x(2, 1);
+  // gimbal_control_ref_o.pitch_v_ref = work_ptr->x(3, 1);
+
+  gimbal_control_ref_o.yaw_ref = gimbal_control_ref_o.debug.aim_yaw;
+  gimbal_control_ref_o.yaw_v_ref = gimbal_control_ref_o.debug.aim_yaw_v;
+  gimbal_control_ref_o.pitch_ref = gimbal_control_ref_o.debug.aim_pitch;
+  gimbal_control_ref_o.pitch_v_ref = gimbal_control_ref_o.debug.aim_pitch_v;
 
   gimbal_control_ref_o.debug.yaw_local_traj.clear();
   gimbal_control_ref_o.debug.pitch_local_traj.clear();

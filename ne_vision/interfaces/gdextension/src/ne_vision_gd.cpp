@@ -37,6 +37,7 @@
 #include "godot_cpp/variant/utility_functions.hpp"
 #include "godot_cpp/core/class_db.hpp"
 
+#include "godot_cpp/variant/dictionary.hpp"
 #include "godot_cpp/variant/variant.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include <opencv2/highgui.hpp>
@@ -92,6 +93,9 @@ void NeVisionGd::_bind_methods()
   godot::ClassDB::bind_method(
       godot::D_METHOD("update_robot_info", "our_color", "bullet_velocity"),
       &NeVisionGd::UpdateRobotInfo);
+
+  godot::ClassDB::bind_method(godot::D_METHOD("get_result"),
+                              &NeVisionGd::GetResult);
 }
 
 NeVisionGd::NeVisionGd() { NV_INFO("NeVisionGd constructor called."); }
@@ -209,6 +213,28 @@ void NeVisionGd::UpdateRobotInfo(const godot::String& our_color,
 
   auto_aim_uPtr_->UpdateRobotInfo(color_char, bullet_velocity);
 }
+
+godot::Dictionary NeVisionGd::GetResult() const
+{
+  godot::Dictionary dict;
+  if (!auto_aim_uPtr_)
+  {
+    dict["state"] = 0; // STOP
+    return dict;
+  }
+
+  auto_aim_uPtr_->AutoAim();
+  NeAutoAimResult_t result;
+  auto_aim_uPtr_->GetResult(result);
+
+  dict["state"]   = static_cast<int>(result.state);
+  dict["yaw"]     = result.control_ref.yaw;
+  dict["pitch"]   = result.control_ref.pitch;
+  dict["yaw_v"]   = result.control_ref.yaw_v;
+  dict["pitch_v"] = result.control_ref.pitch_v;
+  return dict;
+}
+
 } // namespace gdextension
 
 } // namespace ne_vision

@@ -547,6 +547,24 @@ void NeVisionVisualization::drawGimbalControlRef(cv::Mat& frame)
   {
     cv::circle(frame, center_img, 3, cv::Scalar(0, 0, 255), -1);
   }
+
+  scope_mng_.AddPoint("yaw",
+                      vis_pack_.gimbal_control_ref.control_stamp,
+                      vis_pack_.gimbal_control_ref.debug.aim_yaw,
+                      0);
+  scope_mng_.AddPoint("yaw",
+                      vis_pack_.gimbal_control_ref.control_stamp,
+                      vis_pack_.gimbal_control_ref.yaw_ref,
+                      1);
+
+  scope_mng_.AddPoint("pitch",
+                      vis_pack_.gimbal_control_ref.control_stamp,
+                      vis_pack_.gimbal_control_ref.debug.aim_pitch,
+                      0);
+  scope_mng_.AddPoint("pitch",
+                      vis_pack_.gimbal_control_ref.control_stamp,
+                      vis_pack_.gimbal_control_ref.pitch_ref,
+                      1);
 }
 
 } // namespace ne_vision

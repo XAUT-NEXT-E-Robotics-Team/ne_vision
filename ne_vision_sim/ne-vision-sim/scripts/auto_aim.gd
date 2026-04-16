@@ -148,38 +148,41 @@ func _physics_process(delta: float) -> void:
 		target_pitch_v = 0.0
 	else:
 		# ======= 视觉 AI 模式 =======
-		var has_target: bool = true # TODO: 替换为 nv_gd.has_target() 或你的判断逻辑
-		if has_target:
+		var result: Dictionary = nv_gd.get_result()
+		# state: 0=STOP, 1=ERROR, 2=WARNING, 3=IDLE, 4=AIMING
+		if result.get("state", 0) == 4:
 			should_track = true
-			# TODO: 将这里替换为你实际从 C++ 扩展获取目标位置的 API
-			target_yaw = 0.0      # nv_gd.get_target_yaw()
-			target_pitch = 0.0    # nv_gd.get_target_pitch()
-			target_yaw_v = 0.0    # nv_gd.get_target_yaw_velocity()
-			target_pitch_v = 0.0  # nv_gd.get_target_pitch_velocity()
-			
+			# C++ 输出为 IMU 世界系(FLU右手系)绝对角度，转换回 Godot 坐标系
+			# IMU yaw(绕Z轴) -> Godot rotation.y;  IMU pitch(绕Y轴) -> Godot rotation.z = -IMU.y
+			target_yaw   = result["yaw"]
+			target_pitch = -result["pitch"]
+			target_yaw_v   = result["yaw_v"]
+			target_pitch_v = -result["pitch_v"]
+			# print("yaw", target_yaw, "pitch", target_pitch);
+
 			# 加上面板中设置的额外偏移
-			target_yaw += deg_to_rad(extra_yaw_degrees)
+			# target_yaw += deg_to_rad(extra_yaw_degrees)
 
 	if should_track:
 		var target_pos = Vector2(target_yaw, target_pitch)
 		var target_vel = Vector2(target_yaw_v, target_pitch_v)
-		
+
 		# 组装当前状态
 		var current_yaw = gimbal.global_rotation.y
 		var current_pitch = gimbal.global_rotation.z
 		var current_pos = Vector2(current_yaw, current_pitch)
 		var current_vel = Vector2(gyro_godot.y, gyro_godot.z)
-		
+
 		# 运行 PD 控制器
 		var control_output = track_trajectory_pd(target_pos, target_vel, current_pos, current_vel)
-		
+
 		# 作用于云台 (按角速度移动)
 		gimbal.global_rotation.y += control_output.x * delta
 		gimbal.global_rotation.z += control_output.y * delta
-		
+
 		# 限制俯仰角，防止万向节死锁 (Gimbal Lock)
 		gimbal.global_rotation.z = clamp(gimbal.global_rotation.z, deg_to_rad(-85), deg_to_rad(85))
-		
+
 		# --- 缓存数据供 UI 显示 ---
 		debug_data.target_yaw = target_yaw
 		debug_data.target_pitch = target_pitch

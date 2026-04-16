@@ -18,8 +18,8 @@ auto_aim:
     q_y_vel: 1.0
     q_p_pos: 100.0 # pitch
     q_p_vel: 1.0
-    r_y_acc: 10.0
-    r_p_acc: 10.0
+    r_y_acc: 1.0
+    r_p_acc: 1.0
     # 配置箱式约束（这里没有位置约束，原因你猜）
     max_y_vel: 10.0 # yaw
     max_p_vel: 10.0 # pitch

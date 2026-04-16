@@ -41,6 +41,7 @@
 
 #include "godot_cpp/core/math_defs.hpp"
 #include "godot_cpp/variant/char_string.hpp"
+#include "godot_cpp/variant/dictionary.hpp"
 #include "godot_cpp/variant/quaternion.hpp"
 #include "godot_cpp/variant/string.hpp"
 #include "godot_cpp/variant/vector3.hpp"
@@ -73,6 +74,8 @@ public:
                  godot::real_t            delay_s);
   void UpdateRobotInfo(const godot::String& our_color,
                        const godot::real_t  bullet_velocity);
+
+  godot::Dictionary GetResult() const;
 
   void          set_config_file_path(const godot::String& path);
   godot::String get_config_file_path() const;

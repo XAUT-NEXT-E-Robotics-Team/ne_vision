@@ -80,6 +80,12 @@ struct NeGimbalControlRef_t
     std::vector<double> yaw_local_traj;
     std::vector<double> pitch_local_traj;
 
+    // 当前的pitch yaw 目标值
+    double aim_yaw = 0.0;
+    double aim_yaw_v = 0.0;
+    double aim_pitch = 0.0;
+    double aim_pitch_v = 0.0;
+
     // 当前预测的IMU数据（为统一接口这样写，只有四元数和角速度有效，加速度无效
     // 接收时间戳不变
     interfaces::NeImuData_t predicted_imu_data;
