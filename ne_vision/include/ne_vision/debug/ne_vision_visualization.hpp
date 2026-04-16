@@ -50,6 +50,8 @@
 
 #include "ne_vision/debug/ne_data_scope.hpp"
 
+#include "ne_vision/ne_auto_aim_tf.hpp"
+
 namespace ne_vision
 {
 
@@ -79,8 +81,11 @@ private:
     NeFrameInput_t       input;
     NeArmors2D_t         armors_2d;
     NeArmors3D_t         armors_3d;
-    NeAimState_t          aim_state;
+    NeAimState_t         aim_state;
     NeGimbalControlRef_t gimbal_control_ref;
+
+    // Control stamp 与 cap stamp 配对的控制ref
+    NeGimbalControlRef_t control_stamp_gimbal_control_ref;
   };
 
 public:
@@ -129,7 +134,8 @@ private:
   void drawTrackerResult(cv::Mat& frame);
   void drawGimbalControlRef(cv::Mat& frame);
 
-  cv::Point2d projectToImagePlane(const Eigen::Vector3d& point_3d);
+  void computeExpectedBallistic2d(double gimbal_expected_pitch,
+                                  std::vector<cv::Point2d>& expected_points_2d);
 
   struct
   {
@@ -137,7 +143,7 @@ private:
     NeArmors2DCsPtr_t         armors2d_c_sPtr = nullptr;
     NeDebugFrameCsPtr_t       debug_frame_c_sPtr = nullptr;
     NeArmors3DCsPtr_t         armors3d_c_sPtr = nullptr;
-    NeAimStateCSPtr_t          aim_state_c_sPtr = nullptr;
+    NeAimStateCSPtr_t         aim_state_c_sPtr = nullptr;
     NeGimbalControlRefCSPtr_t gimbal_control_ref_c_sPtr = nullptr;
   } channels_;
 
@@ -146,17 +152,9 @@ private:
     std::deque<NeFrameInput_t>       frame_inputs;
     std::deque<NeArmors2D_t>         armors_2ds;
     std::deque<NeArmors3D_t>         armors_3ds;
-    std::deque<NeAimState_t>          aim_states;
+    std::deque<NeAimState_t>         aim_states;
     std::deque<NeGimbalControlRef_t> gimbal_control_refs;
   } vis_queue_;
-
-  struct
-  {
-    cv::Mat                     camera_matrix_;
-    cv::Mat                     dist_coeffs_;
-    Eigen::Matrix3d             camera_matrix_eigen_;
-    Eigen::Matrix<double, 5, 1> dist_coeffs_eigen_;
-  } pro_param_;
 
   struct
   {
@@ -172,6 +170,8 @@ private:
 
   std::string out_video_path_;
   bool        record_video_ = false;
+
+  std::unique_ptr<NeAutoAimTf> auto_aim_tf_uPtr_;
 };
 
 } // namespace ne_vision

@@ -69,10 +69,7 @@ public:
 
 private:
   void preProcess(cv::Mat& frame);
-  void postProcess(size_t        width,
-                   size_t        height,
-                   NeArmors2D_t& armor_2d_s,
-                   char          our_color);
+  void postProcess(size_t width, size_t height, NeArmors2D_t& armor_2d_s);
 
   std::string name_;
 

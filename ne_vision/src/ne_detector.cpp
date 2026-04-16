@@ -141,14 +141,9 @@ void NeDetector::Detect()
   preProcess(frame);
   // 这里的detect_color暂时没用，我们需要拿到颜色取做装甲板闪烁续命
   openvino_infer_uPtr_->infer(frame, 0);
-  postProcess(width, height, armors_2d, frame_i_.our_color);
+  postProcess(width, height, armors_2d);
 
   armors_2d_c_sPtr_->Transmit(armors_2d);
-
-  // std::chrono::steady_clock::time_point end =
-  // std::chrono::steady_clock::now(); double duration_ms =
-  //     std::chrono::duration<double, std::milli>(end - now).count();
-  // NV_DEBUG("Detector took {:.2f} ms", duration_ms);
 }
 
 // 预处理
@@ -160,8 +155,7 @@ void NeDetector::preProcess(cv::Mat& frame)
 // 后处理
 void NeDetector::postProcess(size_t        width,
                              size_t        height,
-                             NeArmors2D_t& armors_2d,
-                             char          out_color)
+                             NeArmors2D_t& armors_2d)
 {
   if (openvino_infer_uPtr_->tmp_objects.empty())
   {
@@ -187,10 +181,6 @@ void NeDetector::postProcess(size_t        width,
     case 0: armor_color = 'B'; break;
     default: armor_color = 'N'; break; // 3
     }
-
-    char aim_color = out_color == 'R' ? 'B' : 'R';
-    if (armor_color != aim_color)
-      continue;
 
     // 构造将自动计算中心
     armors_2d.armors.emplace_back(labels_str,

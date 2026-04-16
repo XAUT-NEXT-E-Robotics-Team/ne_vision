@@ -114,6 +114,43 @@ EulerToQuaternion(double roll, double pitch, double yaw)
   return q;
 }
 
+inline Eigen::Quaterniond So3Exp(const Eigen::Vector3d& vec)
+{
+  double theta = vec.norm();
+  // 当旋转角度非常小时，使用泰勒展开一阶近似，避免除以极小数导致 NaN
+  if (theta < 1e-6)
+  {
+    return Eigen::Quaterniond(1.0, 0.5 * vec.x(), 0.5 * vec.y(), 0.5 * vec.z())
+        .normalized();
+  }
+
+  // 正常情况：转换为轴角再构造四元数
+  Eigen::Vector3d axis = vec / theta;
+  return Eigen::Quaterniond(Eigen::AngleAxisd(theta, axis));
+}
+
+inline Eigen::Vector3d So3Log(const Eigen::Quaterniond& q)
+{
+  // 四元数具有双覆盖性质 (q 和 -q 表示同一旋转)，
+  // 强制 w >= 0 以保证提取出的是“最短路径”的旋转向量
+  Eigen::Quaterniond q_opt = q;
+  if (q_opt.w() < 0.0)
+  {
+    q_opt.coeffs() *= -1.0;
+  }
+
+  double sin_half_theta = q_opt.vec().norm();
+
+  // 小角度近似，避免除零
+  if (sin_half_theta < 1e-6)
+  {
+    return 2.0 * q_opt.vec();
+  }
+
+  double half_theta = std::atan2(sin_half_theta, q_opt.w());
+  return 2.0 * half_theta * (q_opt.vec() / sin_half_theta);
+}
+
 } // namespace math
 
 // Start 0 and end num-1

@@ -5,6 +5,12 @@ auto_aim:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2
     detector_variance: 3.0
+    # IMU相对于拍摄时间的时间偏移：在假设IMU+传输比拍摄慢滞后的前提下。
+    # 正值表示IMU接受时间比拍摄慢多少秒
+    # 即：拍摄时刻的云台将会在 cap_stamp + imu_stamp_offset 时刻收到
+    # 注意：本延迟补偿是基于detect时IMU数据仍存入的假设的。所以该值一般是ms级别
+    imu_stamp_offset: 0.0
+
   # 规划器
   mashiro_planner:
     # 配置MPC权重
@@ -22,7 +28,7 @@ auto_aim:
     # 规划器预测的额外预测时间，即从最新IMU数据开始后需要后推的时间
     # 改时间主要包含 1. 后续算法延迟 2. 通讯延迟 3. 电控响应延迟 4. 拨弹丸延迟
     # 规划器期望的是，在弹丸出射的那一刻时，云台的位姿态。因为飞行已经被考虑
-    additional_predict_time: 0.1
+    additional_predict_time: 0.0
   tracker_3d:
     sion_model:
       # 初始参数
@@ -31,14 +37,14 @@ auto_aim:
       init_max_count_value: 15 # 多少帧后进行评估和选择
       init_alpha: 0.4 # 累积代价的低通滤波系数，越大越重视历史
       # ESIKF参数
-      var_a_min: 1
+      var_a_min: 0.5
       var_a_max: 100
-      var_beta_min: 1
-      var_beta_max: 10
+      var_beta_min: 0.5
+      var_beta_max: 15
       q_scale_rate: 0.1 # 过程噪声缩放调节率，越小越平滑（低通滤波）
       var_z: 0.01
-      var_R: 0.00001
-      omega_dead_band: 0.1 # 低角速度死区，单位rad/s
+      var_R: 0.0000001
+      omega_dead_band: 0.3 # 低角速度死区，单位rad/s
       # 发散检测参数
       divergence_threshold: 13.28 # 卡方发散阈值，自由度为4，显著性水平为?的卡方分布临界值
       max_divergence_count: 5 # 连续多少帧发散就认为模型发散了

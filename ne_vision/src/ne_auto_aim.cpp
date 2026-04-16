@@ -31,35 +31,30 @@
 
 // Description:
 
+#include <cfloat>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <opencv2/opencv.hpp>
+
 #include "ne_vision/ne_auto_aim.hpp"
 #include "ne_vision/detector/ne_detector.hpp"
 #include "ne_vision/interfaces/ne_debug_frame.hpp"
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_param.hpp"
-#include "ne_vision/utils/ne_rerun_debug.hpp"
-#include "ne_vision/utils/ne_code_profiler.hpp"
 #include "ne_vision/ne_channals.hpp"
-#include <cfloat>
-#include <chrono>
-#include <memory>
-#include <opencv2/opencv.hpp>
 
 namespace ne_vision
 {
 
 /* === PUBLIC === */
 
-NeAutoAim::NeAutoAim()
-{
-  // The step cannot be changed
-  setupParameters();
-  setupChannels();
-}
+NeAutoAim::NeAutoAim() {}
 
 NeAutoAim::~NeAutoAim() { Stop(); }
 
-void NeAutoAim::UpdateFrame(const cv::Mat& frame, char our_color)
+void NeAutoAim::UpdateFrame(const cv::Mat& frame, std::string camera_name)
 {
   if (is_running_ == false)
   {
@@ -67,25 +62,46 @@ void NeAutoAim::UpdateFrame(const cv::Mat& frame, char our_color)
     return;
   }
   interfaces::NeFrameInput_t msg;
-  msg.camera_name = "default";
+  msg.camera_name = camera_name;
   msg.cap_stamp = std::chrono::steady_clock::now();
   msg.frame = frame;
 
-  if (our_color != 'B' && our_color != 'R')
+  NV_CHANNELS.frame_input_sPtr()->Transmit(msg);
+}
+
+void NeAutoAim::UpdateRobotInfo(char our_color, double bullet_velocity)
+{
+  // 弹速合理性检测和限幅
+  if (bullet_velocity < 10)
   {
-    NV_WARN(
-        "Invalid our color! Is: {}({}). Set to B", our_color, (int)our_color);
-    our_color = 'B';
+    NV_WARN("Received bullet velocity {} is too low, set to 10.0",
+            bullet_velocity);
+    bullet_velocity = 10.0;
+  }
+  else if (bullet_velocity > 30)
+  {
+    NV_WARN("Received bullet velocity {} is too high, set to 30.0",
+            bullet_velocity);
+    bullet_velocity = 30.0;
   }
 
-  msg.our_color = our_color;
-  NV_CHANNELS.frame_input_sPtr()->Transmit(msg);
+  // 颜色合理性检测
+  if (our_color != 'R' && our_color != 'B')
+  {
+    NV_WARN("Received our color {} is invalid, set to 'N'", our_color);
+    our_color = 'N';
+  }
+
+  // 状态发消息
+  interfaces::NeRobotState_t robot_state_msg;
+  robot_state_msg.our_color = our_color;
+  robot_state_msg.bullet_speed = bullet_velocity;
+  NV_CHANNELS.robot_state_sPtr()->Transmit(robot_state_msg);
 }
 
 void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
                           const Eigen::Vector3d&    gyro,
-                          const Eigen::Quaterniond& quat,
-                          double                    delay_s)
+                          const Eigen::Quaterniond& quat)
 {
   if (is_running_ == false)
   {
@@ -94,9 +110,6 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   }
   interfaces::NeImuData_t msg;
   msg.receive_stamp = std::chrono::steady_clock::now();
-  msg.receive_stamp +=
-      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-          std::chrono::duration<double>(delay_s));
   msg.acc = acc;
   msg.gyro = gyro;
   msg.quat = quat;
@@ -110,6 +123,7 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
 
 void NeAutoAim::Start(std::string config_file_path)
 {
+  std::lock_guard lock(mtx_);
   NV_INFO("Starting NeAutoAim with config file: {}", config_file_path);
 
   if (!NeParam::Instance().LoadFromFile(config_file_path))
@@ -130,15 +144,6 @@ void NeAutoAim::Start(std::string config_file_path)
   is_running_ = true;
 }
 
-void NeAutoAim::AutoAim()
-{
-  if (is_running_ == false)
-  {
-    NV_WARN("AutoAim is not running, cannot auto aim");
-    return;
-  }
-}
-
 void NeAutoAim::DebugFrame(cv::Mat& frame)
 {
   if (is_running_ == false)
@@ -152,7 +157,7 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
   if (!NV_CHANNELS.debug_frame_sPtr()->Receive(msg))
   {
     frame = cv::Mat();
-    NV_WARN("Wait for data from {}", NV_CHANNELS.debug_frame_sPtr()->GetName());
+    NV_INFO("Wait for data from {}", NV_CHANNELS.debug_frame_sPtr()->GetName());
     return;
   }
   if (msg.frame.Empty())
@@ -165,42 +170,77 @@ void NeAutoAim::DebugFrame(cv::Mat& frame)
   frame = msg.frame;
 }
 
-void NeAutoAim::GetResult(double& yaw, double& pitch)
+void NeAutoAim::AutoAim()
 {
+  std::lock_guard lock(mtx_);
   if (is_running_ == false)
   {
+    // 没运行
+    // TODO: 使用心跳机制实际检测
     NV_WARN("AutoAim is not running, cannot get result");
-    yaw = 0;
-    pitch = 0;
+    current_result_.control_ref.yaw = 0;
+    current_result_.control_ref.pitch = 0;
+    current_result_.control_ref.yaw_v = 0;
+    current_result_.control_ref.pitch_v = 0;
+    current_state_ = NeAutoAimState_e::STOP;
     return;
+  }
+  else
+  {
+    current_state_ = NeAutoAimState_e::IDLE;
   }
 
-  interfaces::NeAimState_t msg;
-  if (!NV_CHANNELS.aim_state_sPtr()->Receive(msg))
+  interfaces::NeGimbalControlRef_t msg;
+  if (!NV_CHANNELS.gimbal_control_ref_sPtr()->Receive(msg))
   {
-    yaw = 0;
-    pitch = 0;
-    NV_WARN("Wait for data from {}", NV_CHANNELS.aim_state_sPtr()->GetName());
+    // 无消息
+    NV_INFO("Wait for data from {}",
+            NV_CHANNELS.gimbal_control_ref_sPtr()->GetName());
+    current_result_.control_ref.yaw = 0;
+    current_result_.control_ref.pitch = 0;
+    current_result_.control_ref.yaw_v = 0;
+    current_result_.control_ref.pitch_v = 0;
+    current_state_ = NeAutoAimState_e::IDLE;
     return;
   }
-  // yaw = msg.aim_yaw;
-  // pitch = msg.aim_pitch;
+  if (!msg.valid)
+  {
+    // 无目标
+    current_result_.control_ref.yaw = 0;
+    current_result_.control_ref.pitch = 0;
+    current_result_.control_ref.yaw_v = 0;
+    current_result_.control_ref.pitch_v = 0;
+    current_state_ = NeAutoAimState_e::IDLE;
+    return;
+  }
+  current_result_.control_ref.yaw = msg.yaw_ref;
+  current_result_.control_ref.pitch = msg.pitch_ref;
+  current_result_.control_ref.yaw_v = msg.yaw_v_ref;
+  current_result_.control_ref.pitch_v = msg.pitch_v_ref;
+  current_state_ = NeAutoAimState_e::AIMING;
+
+  current_result_.state = current_state_;
+  return;
 }
 
 void NeAutoAim::Stop()
 {
+  std::lock_guard lock(mtx_);
   tasks_.detector_uPtr_->Stop();
   tasks_.tracker_2d_uPtr_->Stop();
   tasks_.tracker_3d_uPtr_->Stop();
+  tasks_.mashiro_planner_uPtr_->Stop();
   tasks_.debug_visualization_uPtr_->Stop();
   is_running_ = false;
 }
 
+void NeAutoAim::GetResult(NeAutoAimResult_t& result)
+{
+  std::lock_guard lock(mtx_);
+  result = current_result_;
+}
+
 /* === PRIVATE === */
-
-void NeAutoAim::setupParameters() {}
-
-void NeAutoAim::setupChannels() {}
 
 void NeAutoAim::setupTasks()
 {

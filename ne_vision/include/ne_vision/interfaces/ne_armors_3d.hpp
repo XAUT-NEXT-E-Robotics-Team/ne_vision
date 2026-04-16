@@ -72,11 +72,11 @@ struct NeArmors3D_t
       // LT, LB, RB, RT
       std::vector<cv::Point2d> re_projected_pts;
 
-      struct
-      {
-        Eigen::Vector3d    t;
-        Eigen::Quaterniond q;
-      } camera_to_imu;
+      // struct
+      // {
+      //   Eigen::Vector3d    t;
+      //   Eigen::Quaterniond q;
+      // } camera_to_imu;
 
     } debug;
   };

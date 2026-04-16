@@ -33,10 +33,12 @@
 
 #include "ne_vision/planner/ne_mashiro_planner.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <vector>
 
 #include "ne_vision/ballistic_compensation/model_param.hpp"
+#include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "tinympc/tiny_api.hpp"
 #include "tinympc/types.hpp"
 
@@ -86,6 +88,11 @@ NeMashiroPlanner::NeMashiroPlanner(std::string name) : name_(std::move(name))
   double max_p_vel = param_node["max_p_vel"].as<double>(10.0);
   double max_y_acc = param_node["max_y_acc"].as<double>(20.0);
   double max_p_acc = param_node["max_p_acc"].as<double>(20.0);
+
+  // gimbal到muzzle的x轴偏移
+  params_.muzzle_x_offset =
+      NV_PARAM["hardware"]["muzzle"]["gimbal_to_muzzle"]["t"]["x"].as<double>(
+          0.0);
 
   // 额外预测时间
   params_.additional_predict_time =
@@ -179,8 +186,6 @@ void NeMashiroPlanner::Plan()
     NV_WARN("Waiting for IMU data...");
     return;
   }
-  double current_yaw = math::QuaternionToYaw(current_imu.quat);
-  double current_pitch = math::QuaternionToPitch(current_imu.quat);
 
   // 创建消息，并填写最基本的内容
   interfaces::NeGimbalControlRef_t gimbal_control_ref_o;
@@ -188,9 +193,9 @@ void NeMashiroPlanner::Plan()
   gimbal_control_ref_o.valid = false;
   gimbal_control_ref_o.armor_id = "NULL";
 
-  // 回环传送，懂得都懂
-  gimbal_control_ref_o.yaw_ref = current_yaw;
-  gimbal_control_ref_o.pitch_ref = current_pitch;
+  // 确保安全，实则无用
+  gimbal_control_ref_o.yaw_ref = 0;
+  gimbal_control_ref_o.pitch_ref = 0;
 
   // 如果没有目标，就不规划了
   if (aim_state_i.has_target == false)
@@ -220,19 +225,29 @@ void NeMashiroPlanner::Plan()
   double base_dt = imu_to_new_time + params_.additional_predict_time;
 
   // 2. 填时间
-  gimbal_control_ref_o.predicted_stamp =
-      aim_state_i.cap_stamp +
+  // gimbal_control_ref_o.gimbal_predicted_stamp =
+  //     aim_state_i.aim_predictor->GetImuStamp() +
+  //     std::chrono::duration_cast<std::chrono::milliseconds>(
+  //         std::chrono::duration<double>(params_.additional_predict_time));
+  // 控制时间为有IMU预测时间（IMU最新当前时间）+ 额外时间  +
+  // 一个步长（MPC轨迹的最近值）
+  gimbal_control_ref_o.control_stamp =
+      aim_state_i.aim_predictor->GetImuStamp() +
       std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::duration<double>(base_dt));
+          std::chrono::duration<double>(base_dt + params_.step));
 
   // 3. 由于控制延迟，预测云台初始状态
 
   // 预测 additional_predict_time
   // 时间后的云台状态，该状态作为MPC规划器的初始状态。
-  double pred_gimbal_yaw =
-      current_yaw + current_imu.gyro.z() * params_.additional_predict_time;
-  double pred_gimbal_pitch =
-      current_pitch + current_imu.gyro.y() * params_.additional_predict_time;
+  interfaces::NeImuData_t predicted_imu = current_imu;
+  predicted_imu.quat =
+      predicted_imu.quat *
+      math::So3Exp(current_imu.gyro * params_.additional_predict_time);
+  double pred_gimbal_yaw = math::QuaternionToYaw(predicted_imu.quat);
+  double pred_gimbal_pitch = math::QuaternionToPitch(predicted_imu.quat);
+  // 预测结果存为调试
+  gimbal_control_ref_o.debug.predicted_imu_data = predicted_imu;
 
   /* === 正式走MPC流程 ==== */
   // 1. 填入初始云台pitch yaw 以及对应速度
@@ -332,7 +347,8 @@ void NeMashiroPlanner::predictTargetPose(
       double distance = std::hypot(target_pos.x(), target_pos.y());
       double height = target_pos.z();
 
-      double cur_pitch = bm_.Cal_TargetposPitch(distance, height, 0.0, 0.0);
+      double cur_pitch = bm_.Cal_TargetposPitch(
+          distance, height, params_.muzzle_x_offset, 0.0);
       double new_fly_time = bm_.get_ft(distance, cur_pitch);
 
       pitch = cur_pitch;

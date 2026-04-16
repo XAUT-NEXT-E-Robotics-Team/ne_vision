@@ -436,13 +436,13 @@ void NeTracker2D::reprojectAndFillDebugInfo()
 {
   for (auto& each : current_aim_.aim_armors)
   {
-    // 相机到IMU的旋转
-    each.debug_info.camera_to_imu.q =
-        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
+    // // 相机到IMU的旋转
+    // each.debug_info.camera_to_imu.q =
+    //     gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
 
-    // 相机到IMU的平移
-    each.debug_info.camera_to_imu.t =
-        gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
+    // // 相机到IMU的平移
+    // each.debug_info.camera_to_imu.t =
+    //     gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
 
     Eigen::Quaterniond q_c_i =
         gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();

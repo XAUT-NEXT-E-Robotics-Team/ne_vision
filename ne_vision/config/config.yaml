@@ -3,10 +3,16 @@ auto_aim:
   detector:
     # model_path: "/Users/ziyu/codes/ne_vision/install/share/model/0526"
     model_path: "/home/ziyu/ziyu/codes/ne_vision/install/share/model/0526"
+
   tracker_2d:
     lost_count_threshold: 30
     # 识别方差，单位为像素^2
     detector_variance: 3.0
+    # IMU相对于拍摄时间的时间偏移：在假设IMU+传输比拍摄慢滞后的前提下。
+    # 正值表示IMU接受时间比拍摄慢多少秒
+    # 即：拍摄时刻的云台将会在 cap_stamp + imu_stamp_offset 时刻收到
+    # 注意：本延迟补偿是基于detect时IMU数据仍存入的假设的。所以该值一般是ms级别
+    imu_stamp_offset: 0.0
 
   tracker_3d:
     sion_model:
@@ -56,9 +62,13 @@ auto_aim:
     max_y_acc: 20.0
     max_p_acc: 20.0
     # 规划器预测的额外预测时间，即从最新IMU数据开始后需要后推的时间
-    # 改时间主要包含 1. 后续算法延迟 2. 通讯延迟 3. 电控响应延迟 4. 拨弹丸延迟
+    # 主要包含 1. 后续算法延迟 2. 通讯延迟 3. 电控响应延迟 4. 拨弹丸延迟
     # 规划器期望的是，在弹丸出射的那一刻时，云台的位姿态。因为飞行已经被考虑
     additional_predict_time: 0.1
+
+  # visualization:
+  #   # 可视化参数
+  #   ballistic_points_step: 0.1 # 弹道点之间的时间间隔，单位秒
 
 # 外设硬件参数
 hardware:

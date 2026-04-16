@@ -58,35 +58,12 @@ NeVisionVisualization::NeVisionVisualization(std::string name)
   NV_ASSERT(channels_.input_c_sPtr != nullptr &&
             channels_.debug_frame_c_sPtr != nullptr &&
             "Input and debug frame channels must not be null.");
+
+  // 投影工具
+  auto_aim_tf_uPtr_ = std::make_unique<NeAutoAimTf>();
+
   try
   {
-    // Camera intrinsic parameters.
-    const double fx =
-        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fx"].as<double>();
-    const double fy =
-        NV_PARAM["hardware"]["camera"]["camera_matrix"]["fy"].as<double>();
-    const double cx =
-        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cx"].as<double>();
-    const double cy =
-        NV_PARAM["hardware"]["camera"]["camera_matrix"]["cy"].as<double>();
-    pro_param_.camera_matrix_ =
-        (cv::Mat_<double>(3, 3) << fx, 0, cx, 0, fy, cy, 0, 0, 1);
-    pro_param_.camera_matrix_eigen_ =
-        (Eigen::Matrix3d() << fx, 0, cx, 0, fy, cy, 0, 0, 1).finished();
-
-    const double k1 =
-        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k1"].as<double>();
-    const double k2 =
-        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k2"].as<double>();
-    const double p1 =
-        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p1"].as<double>();
-    const double p2 =
-        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["p2"].as<double>();
-    const double k3 =
-        NV_PARAM["hardware"]["camera"]["dist_coeffs"]["k3"].as<double>();
-    pro_param_.dist_coeffs_ = (cv::Mat_<double>(1, 5) << k1, k2, p1, p2, k3);
-    pro_param_.dist_coeffs_eigen_ =
-        (Eigen::Matrix<double, 5, 1>() << k1, k2, p1, p2, k3).finished();
 
     // Armor 3D parameters
     const double small_armor_width =
@@ -206,121 +183,156 @@ bool NeVisionVisualization::matchAll()
   while (!vis_queue_.frame_inputs.empty())
   {
     vis_pack_.input = vis_queue_.frame_inputs.front();
+    auto target_stamp = vis_pack_.input.cap_stamp;
 
+    bool need_wait = false;
+    bool frame_dropped_by_algo = false;
+
+    // 1. Armors 2D 配对
     if (channels_.armors2d_c_sPtr)
     {
-      if (vis_queue_.armors_2ds.empty())
-      {
-        return false;
-      }
       while (!vis_queue_.armors_2ds.empty() &&
-             vis_queue_.armors_2ds.front().cap_stamp <
-                 vis_pack_.input.cap_stamp)
+             vis_queue_.armors_2ds.front().cap_stamp < target_stamp)
       {
         vis_queue_.armors_2ds.pop_front();
       }
       if (vis_queue_.armors_2ds.empty())
       {
-        return false;
+        need_wait = true;
       }
-      if (vis_queue_.armors_2ds.front().cap_stamp > vis_pack_.input.cap_stamp)
+      else if (vis_queue_.armors_2ds.front().cap_stamp > target_stamp)
       {
-        vis_queue_.frame_inputs.pop_front();
-        continue;
+        frame_dropped_by_algo = true;
       }
-      vis_pack_.armors_2d = vis_queue_.armors_2ds.front();
     }
 
+    // 2. Armors 3D 配对
     if (channels_.armors3d_c_sPtr)
     {
-      if (vis_queue_.armors_3ds.empty())
-      {
-        return false;
-      }
       while (!vis_queue_.armors_3ds.empty() &&
-             vis_queue_.armors_3ds.front().cap_stamp <
-                 vis_pack_.input.cap_stamp)
+             vis_queue_.armors_3ds.front().cap_stamp < target_stamp)
       {
         vis_queue_.armors_3ds.pop_front();
       }
       if (vis_queue_.armors_3ds.empty())
       {
-        return false;
+        need_wait = true;
       }
-      if (vis_queue_.armors_3ds.front().cap_stamp > vis_pack_.input.cap_stamp)
+      else if (vis_queue_.armors_3ds.front().cap_stamp > target_stamp)
       {
-        vis_queue_.frame_inputs.pop_front();
-        continue;
+        frame_dropped_by_algo = true;
       }
-      vis_pack_.armors_3d = vis_queue_.armors_3ds.front();
     }
 
+    // 3. Aim State 配对
     if (channels_.aim_state_c_sPtr)
     {
-      if (vis_queue_.aim_states.empty())
-      {
-        return false;
-      }
       while (!vis_queue_.aim_states.empty() &&
-             vis_queue_.aim_states.front().cap_stamp <
-                 vis_pack_.input.cap_stamp)
+             vis_queue_.aim_states.front().cap_stamp < target_stamp)
       {
         vis_queue_.aim_states.pop_front();
       }
       if (vis_queue_.aim_states.empty())
       {
-        return false;
+        need_wait = true;
       }
-      if (vis_queue_.aim_states.front().cap_stamp > vis_pack_.input.cap_stamp)
+      else if (vis_queue_.aim_states.front().cap_stamp > target_stamp)
       {
-        vis_queue_.frame_inputs.pop_front();
-        continue;
+        frame_dropped_by_algo = true;
       }
-      vis_pack_.aim_state = vis_queue_.aim_states.front();
     }
 
+    // 4. Gimbal Control Ref 配对 (双时间轴处理核心)
     if (channels_.gimbal_control_ref_c_sPtr)
     {
-      if (vis_queue_.gimbal_control_refs.empty())
+      // --- 步骤 4.1: 无损搜索 control_stamp ---
+      // 在破坏队列之前，先遍历寻找 control_stamp 最接近且 <= 图像 cap_stamp
+      // 的数据
+      bool found_control = false;
+      auto best_control_it = vis_queue_.gimbal_control_refs.begin();
+
+      for (auto it = vis_queue_.gimbal_control_refs.begin();
+           it != vis_queue_.gimbal_control_refs.end();
+           ++it)
       {
-        return false;
+        // 假设你要找的是发生在这个图像时刻之前最新的那个控制指令
+        if (it->control_stamp <= target_stamp)
+        {
+          best_control_it = it;
+          found_control = true;
+        }
+        else
+        {
+          break; // 因为时间戳是递增的，遇到未来时间直接停止搜索以节省性能
+        }
       }
+
+      if (found_control)
+      {
+        vis_pack_.control_stamp_gimbal_control_ref = *best_control_it;
+      }
+      else
+      {
+        vis_pack_.control_stamp_gimbal_control_ref.valid = false;
+      }
+
+      // --- 步骤 4.2: 严格对齐 cap_stamp ---
       while (!vis_queue_.gimbal_control_refs.empty() &&
-             vis_queue_.gimbal_control_refs.front().cap_stamp <
-                 vis_pack_.input.cap_stamp)
+             vis_queue_.gimbal_control_refs.front().cap_stamp < target_stamp)
       {
         vis_queue_.gimbal_control_refs.pop_front();
       }
       if (vis_queue_.gimbal_control_refs.empty())
       {
-        return false;
+        need_wait = true;
       }
-      if (vis_queue_.gimbal_control_refs.front().cap_stamp >
-          vis_pack_.input.cap_stamp)
+      else if (vis_queue_.gimbal_control_refs.front().cap_stamp > target_stamp)
       {
-        vis_queue_.frame_inputs.pop_front();
-        continue;
+        frame_dropped_by_algo = true;
       }
-      vis_pack_.gimbal_control_ref = vis_queue_.gimbal_control_refs.front();
     }
 
-    vis_queue_.frame_inputs.pop_front();
+    // 决策逻辑 -----------------------------------------
+
+    // 场景A：算法丢弃了该帧，导致 cap_stamp 断层。丢弃废图，看下一张。
+    if (frame_dropped_by_algo)
+    {
+      vis_queue_.frame_inputs.pop_front();
+      continue;
+    }
+
+    // 场景B：数据还没算完，卡住画面等回调函数装填数据。
+    if (need_wait)
+    {
+      return false;
+    }
+
+    // 场景C：cap_stamp 完美对齐！提取所有主数据。
     if (channels_.armors2d_c_sPtr)
     {
+      vis_pack_.armors_2d = vis_queue_.armors_2ds.front();
       vis_queue_.armors_2ds.pop_front();
     }
     if (channels_.armors3d_c_sPtr)
     {
+      vis_pack_.armors_3d = vis_queue_.armors_3ds.front();
       vis_queue_.armors_3ds.pop_front();
     }
     if (channels_.aim_state_c_sPtr)
     {
+      vis_pack_.aim_state = vis_queue_.aim_states.front();
       vis_queue_.aim_states.pop_front();
     }
     if (channels_.gimbal_control_ref_c_sPtr)
     {
+      vis_pack_.gimbal_control_ref = vis_queue_.gimbal_control_refs.front();
       vis_queue_.gimbal_control_refs.pop_front();
+      // 注：vis_pack_.control_stamp_gimbal_control_ref 已在步骤 4.1
+      // 中被提前装填好了！
     }
+
+    // 所有数据提取完毕，安全丢弃当前主图像
+    vis_queue_.frame_inputs.pop_front();
     vis_pack_.is_matched = true;
 
     return true;
@@ -354,36 +366,6 @@ void NeVisionVisualization::Draw()
 
     NV_REC_LOG_FRAME("debug_frame", debug_frame.frame);
   }
-}
-
-cv::Point2d
-NeVisionVisualization::projectToImagePlane(const Eigen::Vector3d& point_3d)
-{
-  cv::Point2d point_2d = {-1, -1};
-  if (channels_.armors2d_c_sPtr == nullptr)
-  {
-    NV_WARN("Armors2D channel is not set, cannot project to image plane.");
-    return point_2d;
-  }
-
-  if (vis_pack_.armors_3d.armors.empty())
-  {
-    // 这里应该是不能正常重投影的，但是有可能被多次调用，免得日志太多
-    return point_2d;
-  }
-  auto q_c_i = vis_pack_.armors_3d.armors.at(0).debug.camera_to_imu.q;
-  auto t_c_i = vis_pack_.armors_3d.armors.at(0).debug.camera_to_imu.t;
-
-  // 计算到相机的旋转和平移
-  auto& q_c_p = q_c_i;
-  auto  t_c_p = q_c_i * point_3d + t_c_i;
-
-  // 进行投影
-  auto P = (pro_param_.camera_matrix_eigen_ * t_c_p) / t_c_p.z();
-
-  cv::Point2d projected_point(P.x(), P.y());
-
-  return projected_point;
 }
 
 void NeVisionVisualization::drawArmors2D(cv::Mat& frame)
@@ -445,6 +427,13 @@ void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
     return;
   }
 
+  if (channels_.armors3d_c_sPtr == nullptr)
+  {
+    NV_WARN("Armors3d channel must be added to visualization, cannot draw "
+            "tracker result.");
+    return;
+  }
+
   const std::string&           armor_id = vis_pack_.aim_state.armor_id;
   std::vector<Eigen::Vector3d> armor_points;
   if (armor_id == "1" || armor_id == "base")
@@ -472,7 +461,8 @@ void NeVisionVisualization::drawTrackerResult(cv::Mat& frame)
     for (const auto& corner : armor_points)
     {
       Eigen::Vector3d world_pt = R_Z * corner + each.head<3>();
-      img_pts.push_back(projectToImagePlane(world_pt));
+      img_pts.push_back(auto_aim_tf_uPtr_->ProjectToImagePlane(
+          vis_pack_.armors_3d.imu_data, world_pt));
     }
 
     for (size_t i = 0; i < 4; ++i)
@@ -537,7 +527,8 @@ void NeVisionVisualization::drawGimbalControlRef(cv::Mat& frame)
   for (const auto& corner : armor_points)
   {
     Eigen::Vector3d world_pt = R_Z * corner + target_center_xyz;
-    img_pts.push_back(projectToImagePlane(world_pt));
+    img_pts.push_back(auto_aim_tf_uPtr_->ProjectToImagePlane(
+        vis_pack_.armors_3d.imu_data, world_pt));
   }
 
   for (size_t i = 0; i < 4; ++i)
@@ -550,7 +541,8 @@ void NeVisionVisualization::drawGimbalControlRef(cv::Mat& frame)
     }
   }
 
-  cv::Point2d center_img = projectToImagePlane(target_center_xyz);
+  cv::Point2d center_img = auto_aim_tf_uPtr_->ProjectToImagePlane(
+      vis_pack_.armors_3d.imu_data, target_center_xyz);
   if (center_img.x >= 0 && center_img.y >= 0)
   {
     cv::circle(frame, center_img, 3, cv::Scalar(0, 0, 255), -1);

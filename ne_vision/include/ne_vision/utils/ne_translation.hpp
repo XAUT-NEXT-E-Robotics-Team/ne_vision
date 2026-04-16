@@ -30,61 +30,75 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
+// 齐次变换的快速运算
+// 懂得都懂
 
 #pragma once
 
-#include <memory>
-
-#include "godot_cpp/classes/ref.hpp"
-#include "godot_cpp/classes/ref_counted.hpp"
-#include "godot_cpp/classes/image.hpp"
-
-#include "godot_cpp/core/math_defs.hpp"
-#include "godot_cpp/variant/char_string.hpp"
-#include "godot_cpp/variant/quaternion.hpp"
-#include "godot_cpp/variant/string.hpp"
-#include "godot_cpp/variant/vector3.hpp"
-#include "ne_vision/ne_auto_aim.hpp"
-
-#include "ne_vision/utils/ne_param.hpp"
+#include "Eigen/Dense"
 
 namespace ne_vision
 {
 
-namespace gdextension
+class NeTranslation
 {
-
-using namespace godot;
-
-class NeVisionGd : public godot::RefCounted
-{
-  GDCLASS(NeVisionGd, godot::RefCounted)
 
 public:
-  NeVisionGd();
-  ~NeVisionGd();
+  // 默认构造函数：平移为0，旋转为单位四元数
+  NeTranslation()
+      : t_(Eigen::Vector3d::Zero()), q_(Eigen::Quaterniond::Identity())
+  {
+  }
+  // 带参构造函数
+  NeTranslation(const Eigen::Vector3d& t, const Eigen::Quaterniond& q)
+      : t_(t), q_(q)
+  {
+  }
 
-  void Start(const godot::String& config_path);
-  void UpdataFrame(const godot::Ref<godot::Image>& gd_img);
-  void GetViualizeFrame(godot::Ref<godot::Image> gd_img);
-  void UpdateImu(const godot::Vector3&    acc,
-                 const godot::Vector3&    gyro,
-                 const godot::Quaternion& quat,
-                 godot::real_t            delay_s);
-  void UpdateRobotInfo(const godot::String& our_color,
-                       const godot::real_t  bullet_velocity);
+  inline Eigen::Vector3d&          t() { return t_; }
+  inline const Eigen::Vector3d&    t() const { return t_; }
+  inline Eigen::Quaterniond&       q() { return q_; }
+  inline const Eigen::Quaterniond& q() const { return q_; }
 
-  void          set_config_file_path(const godot::String& path);
-  godot::String get_config_file_path() const;
+  // 乘法
+  NeTranslation operator*(const NeTranslation& rhs) const
+  {
+    NeTranslation res;
+    // 旋转：q1 * q2
+    res.q_ = this->q_ * rhs.q_;
+    // 平移：q1 * t2 + t1
+    res.t_ = this->q_ * rhs.t_ + this->t_;
+    return res;
+  }
 
-protected:
-  static void _bind_methods();
+  // *=
+  NeTranslation& operator*=(const NeTranslation& rhs)
+  {
+    // 注意顺序
+    this->t_ = this->q_ * rhs.t_ + this->t_;
+    this->q_ = this->q_ * rhs.q_;
+    return *this;
+  }
+
+  // 对坐标乘法
+  Eigen::Vector3d operator*(const Eigen::Vector3d& rhs) const
+  {
+    return this->q_ * rhs + this->t_;
+  }
+
+  // 求inv
+  NeTranslation Inverse() const
+  {
+    // 不要直接逆
+    NeTranslation res;
+    res.q_ = this->q_.conjugate();
+    res.t_ = -(res.q_ * this->t_);
+    return res;
+  }
 
 private:
-  std::unique_ptr<NeAutoAim> auto_aim_uPtr_;
-  std::string                config_file_path_;
+  Eigen::Vector3d    t_;
+  Eigen::Quaterniond q_;
 };
 
-} // namespace gdextension
-
-}; // namespace ne_vision
+} // namespace ne_vision

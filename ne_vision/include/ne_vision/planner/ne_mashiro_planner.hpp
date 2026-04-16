@@ -110,6 +110,9 @@ private:
 
     // 额外预测时间
     double additional_predict_time = 0.0;
+
+    // 枪口相对于云台中心的x轴偏移，单位米
+    double muzzle_x_offset = 0.0;
   } params_;
 
   interfaces::NeRobotState_t robot_state_i_;

@@ -88,6 +88,10 @@ void NeVisionGd::_bind_methods()
   godot::ClassDB::bind_method(
       godot::D_METHOD("update_imu", "acc", "gyro", "quat", "delay_s"),
       &NeVisionGd::UpdateImu);
+
+  godot::ClassDB::bind_method(
+      godot::D_METHOD("update_robot_info", "our_color", "bullet_velocity"),
+      &NeVisionGd::UpdateRobotInfo);
 }
 
 NeVisionGd::NeVisionGd() { NV_INFO("NeVisionGd constructor called."); }
@@ -146,7 +150,7 @@ void NeVisionGd::UpdataFrame(const godot::Ref<godot::Image>& gd_img)
   cv::Mat cv_img(height, width, CV_8UC4, data_ptr);
   cv::cvtColor(cv_img, cv_img, cv::COLOR_RGBA2BGR);
 
-  auto_aim_uPtr_->UpdateFrame(cv_img, 'B');
+  auto_aim_uPtr_->UpdateFrame(cv_img);
 }
 
 void NeVisionGd::UpdateImu(const godot::Vector3&    acc,
@@ -162,8 +166,7 @@ void NeVisionGd::UpdateImu(const godot::Vector3&    acc,
 
   auto_aim_uPtr_->UpdateImu(Eigen::Vector3d(acc.x, acc.y, acc.z),
                             Eigen::Vector3d(gyro.x, gyro.y, gyro.z),
-                            Eigen::Quaterniond(quat.w, quat.x, quat.y, quat.z),
-                            delay_s);
+                            Eigen::Quaterniond(quat.w, quat.x, quat.y, quat.z));
 }
 
 // I try to put gd_img in it, but it could not work anymore.
@@ -186,6 +189,25 @@ void NeVisionGd::GetViualizeFrame(godot::Ref<godot::Image> gd_img)
   if (cv::waitKey(1) == 27) // Press 'Esc' key to close the window
   {
   }
+}
+
+void NeVisionGd::UpdateRobotInfo(const godot::String& our_color,
+                                 const godot::real_t  bullet_velocity)
+{
+  if (!auto_aim_uPtr_)
+  {
+    NV_WARN("NeAutoAim is not initialized.");
+    return;
+  }
+
+  char              color_char = '0';
+  godot::CharString utf8_str = our_color.utf8();
+  if (utf8_str.length() > 0)
+  {
+    color_char = utf8_str.get_data()[0];
+  }
+
+  auto_aim_uPtr_->UpdateRobotInfo(color_char, bullet_velocity);
 }
 } // namespace gdextension
 

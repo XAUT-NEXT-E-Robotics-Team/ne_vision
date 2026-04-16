@@ -44,7 +44,7 @@ namespace interfaces
 struct NeRobotState_t
 {
   // 颜色
-  char color = 'R';
+  char our_color = 'R';
 
   // 弹速，单位 m/s
   double bullet_speed = 20;

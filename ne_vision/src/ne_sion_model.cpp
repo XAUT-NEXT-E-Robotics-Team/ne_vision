@@ -92,6 +92,9 @@ void NeSionAimPredictor::Init()
   }
 
   is_init_predicted_ = true;
+
+  // 这一个很重要
+  imu_stamp_ = current_stamp;
 }
 
 void NeSionAimPredictor::Predict(double                         dt,
@@ -465,6 +468,7 @@ void NeSionModel::adaptiveQAndDivergenceCheck(ModelStatus_t& model, double nis)
   else
     model.divergence_count = 0;
 
+  // TODO: 发散检测
   // if (model.divergence_count > params_.max_divergence_count)
   // {
   //   model.is_diverged = true;

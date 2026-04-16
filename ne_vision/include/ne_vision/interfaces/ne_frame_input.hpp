@@ -54,9 +54,6 @@ struct NeFrameInput_t
 
   // The frame
   NeDMat frame;
-
-  // Our color: B or R
-  char our_color;
 };
 
 } // namespace interfaces
