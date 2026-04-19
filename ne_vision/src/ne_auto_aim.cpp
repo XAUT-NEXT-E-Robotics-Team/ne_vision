@@ -273,8 +273,8 @@ void NeAutoAim::setupTasks()
       std::make_shared<NeMashiroPlanner>("mashiro_planner");
   tasks_.mashiro_planner_uPtr_ =
       std::make_unique<NeTask>(task_objs_.mashiro_planner_sPtr_->GetName(),
-                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               NV_CHANNELS.aim_state_sPtr(),
+                               NeTaskType_e::WAIT_FOR_INTERVAL,
+                               10ms,
                                task_objs_.mashiro_planner_sPtr_.get(),
                                &NeMashiroPlanner::Plan);
 

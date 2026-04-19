@@ -1,13 +1,3 @@
-/*
- * @Author: ei_code_bash && 3080152159@qq.com
- * @Date: 2026-03-22 20:31:20
- * @LastEditors: ei_code_bash && 3080152159@qq.com
- * @LastEditTime: 2026-03-23 01:09:38
- * @FilePath: /ne_vision/ne_vision/interfaces/real/src/main.cpp
- * @Description: 我永远喜欢雪之下雪乃
- *
- * Copyright (c) 2026 by ei_code_bash, All Rights Reserved.
- */
 ///////////////////////////////////////////////////////////
 //                                                       //
 //                        .                 .:-:         //
@@ -48,7 +38,114 @@
 #include "ne_vision/serial/ne_serial_driver.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <chrono>
+#include <mutex>
+#include <thread>
 using namespace ne_vision;
+
+std::atomic_bool is_running = true;
+
+// 图像线程只负责维护图像
+void FrameThread(NeAutoAim& auto_aim, HikCam& hik_cam)
+{
+  cv::Mat frame;
+  for (; is_running.load();)
+  {
+    hik_cam.GetMat(frame);
+    if (!frame.empty())
+    {
+      // 图像更新
+      auto_aim.UpdateFrame(frame);
+
+      // 获取debug
+      auto_aim.DebugFrame(frame);
+
+      // 显示
+      if (!frame.empty())
+      {
+        cv::imshow("debug", frame);
+      }
+    }
+    auto key = cv::waitKey(1);
+    if (key == 27)
+    {
+      is_running.store(false);
+      break;
+    }
+  }
+}
+
+// 串口线程负责维护串口和控制
+void SerialThread(int freq, NeAutoAim& auto_aim)
+{
+  // ne_serial::NeSerialDriver driver("/dev/ttyACM0", 200000, false);
+
+  std::mutex             state_mtx;
+  ne_serial::GimbalState latest_state;
+
+  // driver.onGimbalState([&](const ne_serial::GimbalState& gs)
+  // {
+  //   std::lock_guard lk(state_mtx);
+  //   latest_state = gs;
+  // });
+
+  // if (!driver.start())
+  // {
+  //   NV_ERROR("Serial driver failed to start");
+  //   return;
+  // }
+
+  // // 读取最新串口状态并注入自瞄模块
+  // auto readFromSerial = [&]() {
+  //   ne_serial::GimbalState gs;
+  //   {
+  //     std::lock_guard lk(state_mtx);
+  //     gs = latest_state;
+  //   }
+
+  //   // 0 = 红方, 1 = 蓝方（依协议约定）
+  //   char color = (gs.our_color == 1) ? 'B' : 'R';
+  //   auto_aim.UpdateRobotInfo(color, static_cast<double>(gs.muzzle_v));
+
+  //   Eigen::Quaterniond quat = Eigen::AngleAxisd(static_cast<double>(gs.yaw),
+  //                                               Eigen::Vector3d::UnitZ()) *
+  //                             Eigen::AngleAxisd(static_cast<double>(gs.pitch),
+  //                                               Eigen::Vector3d::UnitY());
+  //   auto_aim.UpdateImu(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+  //   quat);
+  // };
+
+  NeAutoAimResult_t result;
+  const auto        period = std::chrono::microseconds(1'000'000 / freq);
+  for (; is_running.load();)
+  {
+    const auto t0 = std::chrono::steady_clock::now();
+
+    // readFromSerial();
+    auto_aim.UpdateRobotInfo('B', 20);
+    auto_aim.UpdateImu(Eigen::Vector3d::Zero(),
+                       Eigen::Vector3d::Zero(),
+                       Eigen::Quaterniond::Identity());
+    auto_aim.AutoAim();
+    auto_aim.GetResult(result);
+
+    // ne_serial::GimbalOrientation orient;
+    // orient.yaw = static_cast<float>(result.control_ref.yaw);
+    // orient.pitch = static_cast<float>(result.control_ref.pitch);
+    // orient.fire = (result.state == NeAutoAimState_e::AIMING)
+    //                   ? sentry_protocol::AUTO_AIM_FIRE
+    //                   : sentry_protocol::AUTO_AIM_NO_FIRE;
+    // orient.state = 0;
+    // SET_AUTO_AIM_STATE_ENABLE(orient.state);
+    // if (result.state == NeAutoAimState_e::AIMING)
+    //   SET_AUTO_AIM_STATE_TRACKING(orient.state);
+    // driver.sendGimbalOrientation(orient);
+
+    std::this_thread::sleep_until(t0 + period);
+  }
+
+  // driver.stop();
+}
 
 int main()
 {
@@ -64,80 +161,35 @@ int main()
   cv::Mat   frame;
   NeAutoAim auto_aim;
   HikCam    hik_cam;
-  // ne_serial::NeSerialDriver driver("/dev/ttyACM0",200000,false);
-  std::mutex serial_mtx;
-  float      gimbal_pitch = 0.0f;
-  float      gimbal_yaw = 0.0f;
-  float      muzzle_v = 25.0f;
-  char       our_color = '\0';
-  // driver.onGimbalState([&](const ne_serial::GimbalState& gimbal_state)
-  // {
-  //    std::lock_guard<std::mutex> lk(serial_mtx);
-  //    gimbal_pitch = gimbal_state.pitch;
-  //    gimbal_yaw = gimbal_state.yaw;
-  //    muzzle_v = gimbal_state.muzzle_v;
-  //    our_color = gimbal_state.our_color;
-  // });
-  // if(!driver.start())
-  // {
-  //   printf("Failed to open serial driver");
-  //   return -1;
-  // }
 
-  auto_aim.Start(config_path);
   hik_cam.StartDevice(0);
   hik_cam.SetResolution(1440, 1080);
-  // hik_cam.SetPixelFormat(17301512);
+  hik_cam.SetPixelFormat(17301512);
   hik_cam.SetExposureTime(8000);
   hik_cam.SetGAIN(16.0);
   hik_cam.SetFrameRate(120);
   hik_cam.SetStreamOn();
   hik_cam.GetMat(frame);
-  while (1)
+
+  // 检测读取状态
+  if (frame.empty())
   {
-
-    hik_cam.GetMat(frame);
-    char  tmp_color;
-    float tmp_muzzle_v;
-    {
-      std::lock_guard<std::mutex> lk(serial_mtx);
-      tmp_color = our_color;
-      tmp_muzzle_v = muzzle_v;
-    }
-
-    auto_aim.UpdateFrame(frame, 'B'); // 接收颜色
-    auto_aim.AutoAim();
-    auto_aim.UpdateImu(Eigen::Vector3d::Zero(),
-                       Eigen::Vector3d::Zero(),
-                       Eigen::Quaterniond::Identity(),
-                       0.0);
-
-    double aim_yaw = 0;
-    double aim_pitch = 0;
-
-    auto_aim.GetResult(aim_yaw, aim_pitch);
-    ne_serial::GimbalOrientation ne_orien;
-    ne_orien.state = 0;
-    SET_AUTO_AIM_STATE_ENABLE(ne_orien.state);
-    if (tmp_color == 'R')
-      SET_AUTO_AIM_STATE_WE_ARE_RED(ne_orien.state);
-    ne_orien.pitch = static_cast<float>(aim_pitch);
-    ne_orien.yaw = static_cast<float>(aim_yaw);
-    ne_orien.fire = 0xff; // TODO: 根据自瞄置信度决定是否开火
-    // driver.sendGimbalOrientation(ne_orien);
-
-    cv::Mat re;
-    auto_aim.DebugFrame(re);
-    if (!re.empty())
-    {
-      cv::imshow("debug", re);
-    }
-    auto key = cv::waitKey(1);
-    if (key == 27)
-    {
-      break;
-    }
+    NV_ERROR("Failed to get frame from camera, exiting...");
+    return -1;
   }
-  // driver.stop();
+
+  // 启动自瞄
+  auto_aim.Start(config_path);
+
+  // 开启两个线程：一个维护图像，一个维护串口和控制
+  // 图像为自由频率
+  // 串口为固定频率
+
+  std::jthread frame_thread(FrameThread, std::ref(auto_aim), std::ref(hik_cam));
+  std::jthread serial_thread(SerialThread, 100, std::ref(auto_aim));
+
+  frame_thread.join();
+  serial_thread.join();
+
   return 0;
 }

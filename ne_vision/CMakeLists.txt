@@ -44,10 +44,10 @@ project(ne_vision)
 option(ENABLE_BUILD_GDEXTENSION "Enable building GDExtension for godot sim" ON)
 option(ENABLE_BUILD_ROS2_NODE "Enable building ROS2 node and component" ON)
 option(ENABLE_BUILD_TESTS "Enable building tests" ON)
+option(ENABLE_BUILD_REAL "Enable building real" ON)
 
 option(USE_SYMLINK_INSTALL "Use symlink installation" OFF)
 
-option(USE_RERUN_DEBUG "Use rerun for debugging" ON)
 
 #####################
 # Find dependencies #
@@ -177,7 +177,11 @@ if(ENABLE_BUILD_TESTS)
     include(cmake/build_tests.cmake)
 endif()
 
-# include(cmake/build_real.cmake)
+if(ENABLE_BUILD_REAL)
+    message(STATUS "[ne_vision] Real build is enabled.")
+    message(STATUS "[ne_vision] Start building real...")
+    include(cmake/build_real.cmake)
+endif()
 
 #################################
 # Build ros2 node and component #
