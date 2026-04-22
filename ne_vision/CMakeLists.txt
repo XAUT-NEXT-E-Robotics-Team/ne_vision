@@ -36,19 +36,6 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(ne_vision)
 
-#############################
-# Config CMake options here #
-#############################
-
-# If you want to enable building GDExtension for godot sim, set to ON.
-option(ENABLE_BUILD_GDEXTENSION "Enable building GDExtension for godot sim" ON)
-option(ENABLE_BUILD_ROS2_NODE "Enable building ROS2 node and component" ON)
-option(ENABLE_BUILD_TESTS "Enable building tests" ON)
-option(ENABLE_BUILD_REAL "Enable building real" ON)
-
-option(USE_SYMLINK_INSTALL "Use symlink installation" OFF)
-
-
 #####################
 # Find dependencies #
 #####################
@@ -147,42 +134,26 @@ target_precompile_headers(
 # Install #
 ###########
 
-include(${PROJECT_SOURCE_DIR}/cmake/install_resource.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/install_resource.cmake)
 
+# Install library
+install(TARGETS ${PROJECT_NAME} DESTINATION lib)
+
+# Model
 install_resource(
-    SOURCE ${CMAKE_SOURCE_DIR}/model
-    DESTINATION share
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/model/
+    DESTINATION share/${PROJECT_NAME}
 )
 
-install_resource(
-    SOURCE ${CMAKE_SOURCE_DIR}/config
-    DESTINATION share
-)
-
-install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/setup.sh DESTINATION .)
+# install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/setup.sh DESTINATION .)
 
 #############################
 # Build interfaces and test #
 #############################
 
-if(ENABLE_BUILD_GDEXTENSION)
-    message(STATUS "[ne_vision] GDExtension build is enabled.")
-    message(STATUS "[ne_vision] Start building GDExtension for godot sim...")
-    include(cmake/build_gdextension.cmake)
-endif()
+# if(ENABLE_BUILD_GDEXTENSION)
+#     message(STATUS "[ne_vision] GDExtension build is enabled.")
+#     message(STATUS "[ne_vision] Start building GDExtension for godot sim...")
+#     include(cmake/build_gdextension.cmake)
+# endif()
 
-if(ENABLE_BUILD_TESTS)
-    message(STATUS "[ne_vision] Tests build is enabled.")
-    message(STATUS "[ne_vision] Start building tests...")
-    include(cmake/build_tests.cmake)
-endif()
-
-if(ENABLE_BUILD_REAL)
-    message(STATUS "[ne_vision] Real build is enabled.")
-    message(STATUS "[ne_vision] Start building real...")
-    include(cmake/build_real.cmake)
-endif()
-
-#################################
-# Build ros2 node and component #
-#################################

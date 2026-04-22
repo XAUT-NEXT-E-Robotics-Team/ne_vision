@@ -240,14 +240,7 @@ SerialToNode::PkgState NeSerialDriver::decode()
             decodeBuffer_[i] = receive_buffer_[i];
         }
 
-        // 验证 CRC16
-        if (!ne_io::Verify_CRC16_Check_Sum(decodeBuffer_, total_size))
-        {
-            error_sum_payload_++;
-            // CRC 失败，丢弃第一个字节
-            receive_buffer_.pop_front();
-            return SerialToNode::PkgState::CRC_PKG_ERROR;
-        }
+        // 验证 CRC16\n        if (!ne_io::Verify_CRC16_Check_Sum(decodeBuffer_, total_size))\n        {\n            error_sum_payload_++;\n            // CRC 失败，说明当前的 header 是假的\n            // 直接丢弃整个假包头及后面的数据，直到下一个包头\n            receive_buffer_.pop_front();\n            while (!receive_buffer_.empty() && \n                   receive_buffer_.front() != sentry_protocol::PACK_HEADER && \n                   receive_buffer_.front() != sentry_protocol::NAV_PACK_HEADER)\n            {\n                receive_buffer_.pop_front();\n            }\n            return SerialToNode::PkgState::CRC_PKG_ERROR;\n        }
 
         // 解码
         sentry_protocol::Sentry_read read_pkt =

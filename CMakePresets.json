@@ -1,0 +1,40 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_COLOR_DIAGNOSTICS": "ON"
+      }
+    },
+    {
+      "name": "godot_sim",
+      "displayName": "Godot 仿真",
+      "description": "开启 Godot 适配器并启用软链接安装资源",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NE_ENABLE_GDEXTENSION": "ON",
+        "NE_ENABLE_STANDALONE": "OFF",
+        "NE_ENABLE_ROS2": "OFF",
+        "USE_SYMLINK_INSTALL": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/install/godot"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "godot_sim",
+      "configurePreset": "godot_sim"
+    }
+  ]
+}

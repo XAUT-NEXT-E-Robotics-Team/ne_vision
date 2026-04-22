@@ -23,3 +23,9 @@ python3 nv.py run mt_auto_aim_video_test # 运行视频测试
 - [Sion 卡尔曼滤波追踪模型 (sion_model)](docs/sion_model.md)
 - [PnP 优化与协方差矩阵 (pnp_optimize_and_cov)](docs/pnp_optimize_and_cov.md)
 - [开发者备忘录 / Memo (memo)](docs/memo.md)
+
+## 项目结构
+
+- ne_vision 视觉主库
+- ne_vision_sim 视觉godot仿真
+- ne_vision_web 用网页来可视化或调参

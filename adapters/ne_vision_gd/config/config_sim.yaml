@@ -1,0 +1,108 @@
+auto_aim:
+  detector:
+    model_path: "/Users/ziyu/codes/ne_vision/ne_vision_sim/ne-vision-sim/gdextensions/ne_vision_gd/model/0526"
+  tracker_2d:
+    lost_count_threshold: 30
+    # 识别方差，单位为像素^2
+    detector_variance: 3.0
+    # IMU相对于拍摄时间的时间偏移：在假设IMU+传输比拍摄慢滞后的前提下。
+    # 正值表示IMU接受时间比拍摄慢多少秒
+    # 即：拍摄时刻的云台将会在 cap_stamp + imu_stamp_offset 时刻收到
+    # 注意：本延迟补偿是基于detect时IMU数据仍存入的假设的。所以该值一般是ms级别
+    imu_stamp_offset: 0.0
+
+  # 规划器
+  mashiro_planner:
+    # 配置MPC权重
+    q_y_pos: 100.0 # yaw
+    q_y_vel: 1.0
+    q_p_pos: 100.0 # pitch
+    q_p_vel: 1.0
+    r_y_acc: 1.0
+    r_p_acc: 1.0
+    # 配置箱式约束（这里没有位置约束，原因你猜）
+    max_y_vel: 10.0 # yaw
+    max_p_vel: 10.0 # pitch
+    max_y_acc: 20.0
+    max_p_acc: 20.0
+    # 规划器预测的额外预测时间，即从最新IMU数据开始后需要后推的时间
+    # 改时间主要包含 1. 后续算法延迟 2. 通讯延迟 3. 电控响应延迟 4. 拨弹丸延迟
+    # 规划器期望的是，在弹丸出射的那一刻时，云台的位姿态。因为飞行已经被考虑
+    additional_predict_time: 0.0
+  tracker_3d:
+    sion_model:
+      # 初始参数
+      init_R: 0.3 # 初始半径，单位米
+      init_omega: 5.0 # 初始角速度，单位rad/s，正反转初始化
+      init_max_count_value: 15 # 多少帧后进行评估和选择
+      init_alpha: 0.4 # 累积代价的低通滤波系数，越大越重视历史
+      # ESIKF参数
+      var_a_min: 0.5
+      var_a_max: 100
+      var_beta_min: 0.5
+      var_beta_max: 15
+      q_scale_rate: 0.1 # 过程噪声缩放调节率，越小越平滑（低通滤波）
+      var_z: 0.01
+      var_R: 0.0000001
+      omega_dead_band: 0.3 # 低角速度死区，单位rad/s
+      # 发散检测参数
+      divergence_threshold: 13.28 # 卡方发散阈值，自由度为4，显著性水平为?的卡方分布临界值
+      max_divergence_count: 5 # 连续多少帧发散就认为模型发散了
+      max_R: 0.6 # 最大可接受半径，单位米
+      min_R: 0.1 # 最小可接受半径，单位米
+      max_omega: 25.0 # 最大可接受角速度，包括反向，单位rad/s
+      additional_dt: -0.1
+      debug: # rerun曲线输出，需要打开调试总总总开关（不是这个），不要开太多
+        enable: false # 总开关
+        yaw: false # yaw弧度
+        omega: false # 角速度
+        R: false # 半径
+        Q_var: false # 方差（过程）
+        nis: false # NIS统计量
+        dis: false # 距离
+        model_idx: false # 多假设模型索引
+
+hardware:
+  camera:
+    camera_matrix:
+      # 相机内参
+      fx: 1251.0
+      fy: 1251.0
+      cx: 540.0
+      cy: 405.0
+    dist_coeffs:
+      # 畸变参数
+      k1: 0.0
+      k2: 0.0
+      p1: 0.0
+      p2: 0.0
+      k3: 0.0
+    gimbal_to_camera:
+      # 云台到相机的变换
+      r: # 旋转角度（度）(RPY)
+        r: 0.0
+        p: 0.0
+        y: 0.0
+      t: # 平移向量（米）
+        x: 0.0
+        y: 0.0
+        z: 0.0
+  muzzle:
+    gimbal_to_muzzle:
+      # 云台到枪口的变换
+      t: # 平移向量（米）
+        x: 0.1
+    # 只能是small或large
+    ball_type: small
+
+rm:
+  armor:
+    small:
+      width: 0.135
+      height: 0.055
+    large:
+      width: 0.225
+      height: 0.055
+    outpost:
+      width: 0.3
+      height: 0.15
