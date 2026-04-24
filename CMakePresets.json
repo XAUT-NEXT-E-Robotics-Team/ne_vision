@@ -37,6 +37,8 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "DRIVER_ENABLE_NE_SERIAL_DRIVER": "ON",
+        "DRIVER_ENABLE_NE_HIK_DRIVER": "ON",
         "ADAPTER_ENABLE_NE_VISION_GD": "OFF",
         "ADAPTER_ENABLE_NE_VISION_REALITY": "ON",
         "USE_SYMLINK_INSTALL": "OFF"

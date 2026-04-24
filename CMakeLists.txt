@@ -48,7 +48,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 是否开启以下这些内容的编译
 option(EXTENSION_ENABLE_NE_DEBUG_ZMQ "Enable ZeroMQ debug extension" OFF)
 
-option(DRIVER_ENABLE_NE_SERIAL_DRIVER "Enable serial driver" ON)
+option(DRIVER_ENABLE_NE_SERIAL_DRIVER "Enable serial driver" OFF)
+option(DRIVER_ENABLE_NE_HIK_DRIVER "Enable Hikvision camera driver (requires MVS SDK)" OFF)
 
 option(ADAPTER_ENABLE_NE_VISION_GD "Enable Godot Extension adapter" OFF)
 option(ADAPTER_ENABLE_NE_VISION_REALITY "Enable Reality hardware adapter" OFF)
@@ -83,6 +84,15 @@ if(DRIVER_ENABLE_NE_SERIAL_DRIVER)
         add_subdirectory(drivers/ne_serial_driver)
     else()
         message(WARNING "[ne_vision_builder] drivers/ne_serial_driver directory not found, skipping...")
+    endif()
+endif()
+
+if(DRIVER_ENABLE_NE_HIK_DRIVER)
+    message(STATUS "[ne_vision_builder] Driver [ne_hik_driver] enabled")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/drivers/ne_hik_driver/CMakeLists.txt")
+        add_subdirectory(drivers/ne_hik_driver)
+    else()
+        message(WARNING "[ne_vision_builder] drivers/ne_hik_driver directory not found, skipping...")
     endif()
 endif()
 
