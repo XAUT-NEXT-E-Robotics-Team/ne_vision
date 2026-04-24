@@ -34,9 +34,11 @@
 // RALL + 多例模式
 
 #include <memory>
+#include <functional>
 #include <chrono>
 #include <string>
 #include <mutex>
+#include <deque>
 #include <unordered_map>
 
 #pragma once
@@ -47,31 +49,17 @@ namespace ne_vision
 class NeCodeProfiler final
 {
 public:
-  struct ResultData
+  struct ResultData_t
   {
-    inline double GetAvgS() const
-    {
-      return count > 0 ? total_time.count() / count : 0.0;
-    }
+    inline double GetAvgDurationS() const { return avg_duration; }
+    inline double GetAvgIntervalS() const { return avg_interval; }
+    inline double GetLastDurationS() const { return last_duration; }
+    inline double GetLastIntervalS() const { return last_interval; }
 
-    inline double GetAvgPeriodS() const
-    {
-      return period_count > 0 ? total_period.count() / period_count : 0.0;
-    }
-
-    inline double GetCurrentS() const { return current_time.count(); }
-
-    inline double GetCurrentPeriodS() const { return current_period.count(); }
-
-    // 运行时间分析
-    std::chrono::duration<double> total_time{0};
-    size_t                        count{0};
-    std::chrono::duration<double> current_time{0};
-
-    // 运行间隔分析
-    std::chrono::duration<double> total_period{0};
-    size_t                        period_count{0};
-    std::chrono::duration<double> current_period{0};
+    double avg_duration  = 0.0;
+    double avg_interval  = 0.0;
+    double last_duration = 0.0;
+    double last_interval = 0.0;
   };
 
   static std::shared_ptr<NeCodeProfiler> GetInstance(const std::string& name)
@@ -88,6 +76,14 @@ public:
     return it->second;
   }
 
+  static void ForEach(
+      const std::function<void(const std::string&, NeCodeProfiler&)>& fn)
+  {
+    std::lock_guard<std::mutex> lock(creation_mtx_);
+    for (auto& [name, profiler] : profiler_map_)
+      fn(name, *profiler);
+  }
+
   NeCodeProfiler(const NeCodeProfiler&) = delete;
   NeCodeProfiler& operator=(const NeCodeProfiler&) = delete;
   NeCodeProfiler(NeCodeProfiler&&) = delete;
@@ -98,30 +94,52 @@ public:
   {
     std::lock_guard<std::mutex> lock(data_mtx_);
 
-    // 第一次不计算周期
-    if (result_data_.period_count > 0)
+    if (last_start_time_.time_since_epoch().count() != 0)
     {
-      result_data_.current_period = current_start_time - last_start_time_;
-      result_data_.total_period += result_data_.current_period;
+      double interval = std::chrono::duration<double>(
+                            current_start_time - last_start_time_).count();
+      last_interval_ = interval;
+      interval_window_.push_back(interval);
     }
-
-    result_data_.period_count++;
     last_start_time_ = current_start_time;
   }
 
   inline void RecordEnd(std::chrono::duration<double> elapsed_time)
   {
     std::lock_guard<std::mutex> lock(data_mtx_);
-
-    result_data_.current_time = elapsed_time;
-    result_data_.total_time += elapsed_time;
-    result_data_.count++;
+    last_duration_ = elapsed_time.count();
+    duration_window_.push_back({std::chrono::steady_clock::now(), last_duration_});
   }
 
-  inline ResultData GetResult()
+  inline ResultData_t GetResult()
   {
     std::lock_guard<std::mutex> lock(data_mtx_);
-    return result_data_;
+    auto now = std::chrono::steady_clock::now();
+
+    while (!duration_window_.empty() &&
+           std::chrono::duration<double>(now - duration_window_.front().first).count() > window_s_)
+      duration_window_.pop_front();
+
+    while (!interval_window_.empty() && interval_window_.size() > duration_window_.size() + 1)
+      interval_window_.pop_front();
+
+    ResultData_t r;
+    r.last_duration = last_duration_;
+    r.last_interval = last_interval_;
+
+    if (!duration_window_.empty())
+    {
+      double sum = 0;
+      for (auto& [t, v] : duration_window_) sum += v;
+      r.avg_duration = sum / duration_window_.size();
+    }
+    if (!interval_window_.empty())
+    {
+      double sum = 0;
+      for (auto v : interval_window_) sum += v;
+      r.avg_interval = sum / interval_window_.size();
+    }
+    return r;
   }
 
 private:
@@ -131,12 +149,18 @@ private:
                            profiler_map_;
   inline static std::mutex creation_mtx_;
 
-  ResultData result_data_;
+  double window_s_ = 1.0;
+
+  double last_duration_ = 0.0;
+  double last_interval_ = 0.0;
+
+  std::deque<std::pair<std::chrono::steady_clock::time_point, double>> duration_window_;
+  std::deque<double> interval_window_;
 
   std::string name_;
   std::mutex  data_mtx_;
 
-  std::chrono::steady_clock::time_point last_start_time_;
+  std::chrono::steady_clock::time_point last_start_time_{};
 };
 
 class NeProfileScope final

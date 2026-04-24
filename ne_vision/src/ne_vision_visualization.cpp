@@ -354,6 +354,14 @@ void NeVisionVisualization::Draw()
     drawTrackerResult(frame);
     drawGimbalControlRef(frame);
 
+    NeCodeProfiler::ForEach([this](const std::string& name, NeCodeProfiler& p) {
+      auto r = p.GetResult();
+      double interval = r.GetAvgIntervalS();
+      double hz       = interval > 0 ? 1.0 / interval : 0.0;
+      scope_mng_.AddText(
+          name, cv::format("%.4fHz  %.4fms", hz, r.GetAvgDurationS() * 1000));
+    });
+
     scope_mng_.DrawAll(frame);
 
     debug_frame.frame = frame;

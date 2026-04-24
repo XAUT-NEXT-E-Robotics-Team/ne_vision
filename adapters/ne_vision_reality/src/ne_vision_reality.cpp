@@ -32,6 +32,7 @@
 // Description:
 // 串口回环性能测试：接收cmd=0x01，立即回环发送cmd=0x02
 
+#include <Eigen/src/Core/Matrix.h>
 #include <atomic>
 #include <chrono>
 #include <thread>
