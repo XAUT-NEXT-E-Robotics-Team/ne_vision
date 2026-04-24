@@ -235,11 +235,6 @@ void NeAutoAim::Stop()
   is_running_ = false;
 }
 
-void NeAutoAim::GetResult(NeAutoAimResult_t& result)
-{
-  std::lock_guard lock(mtx_);
-  result = current_result_;
-}
 
 /* === PRIVATE === */
 

@@ -30,69 +30,42 @@
 ###########################################################
 
 # Description:
-#
+# NE_VISION_REALITY
+# Real hardware adapter: connects ne_vision with ne_serial_driver.
+
+cmake_minimum_required(VERSION 3.22.1)
+project(ne_vision_reality)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-file(GLOB_RECURSE NE_VISION_REAL_SOURCES
-  interfaces/real/src/*.cpp
-  interfaces/real/src/*.c
+###################################
+# Add all source and header files #
+###################################
+
+file(GLOB_RECURSE NE_VISION_REALITY_SOURCES
+    "src/*.cpp" "src/*.c"
 )
 
-file(GLOB_RECURSE NE_VISION_REAL_HEADERS
-  interfaces/real/include/*.h
-  interfaces/real/include/*.hpp
+file(GLOB_RECURSE NE_VISION_REALITY_HEADERS
+    "include/*.hpp" "include/*.h"
 )
 
-set(HIK_INCLUDE_DIR "/opt/MVS/include")
-set(HIK_LIBRARY_DIR "/opt/MVS/lib/64")
+foreach(file ${NE_VISION_REALITY_SOURCES} ${NE_VISION_REALITY_HEADERS})
+    message(STATUS "[ne_vision_reality] Adding source/header file: ${file}")
+endforeach()
 
-include_directories(${HIK_INCLUDE_DIR})
+#####################
+# Build executable  #
+#####################
 
-add_executable(
-    ne_vision_real
-    ${NE_VISION_REAL_SOURCES}
-    ${NE_VISION_REAL_HEADERS}
-)
+add_executable(ne_vision_reality ${NE_VISION_REALITY_SOURCES} ${NE_VISION_REALITY_HEADERS})
+target_link_libraries(ne_vision_reality PRIVATE ne_vision ne_serial_driver)
+target_compile_features(ne_vision_reality PRIVATE cxx_std_20)
+target_include_directories(ne_vision_reality PRIVATE include)
 
-target_include_directories(ne_vision
-  PUBLIC
-  HIK_INCLUDE_DIR
-)
-
-target_link_libraries(ne_vision_real
-  PRIVATE
-  ${HIK_LIBRARY_DIR}/libMvCameraControl.so
-)
-
-target_include_directories(ne_vision_real
-  PRIVATE
-    interfaces/real/include
-)
-
-target_link_libraries(ne_vision_real
-  PRIVATE
-  ne_vision
-)
-
-set_target_properties(
-    ne_vision_real
-    PROPERTIES
-    INSTALL_RPATH
-    "$ORIGIN/../lib"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
-    LINK_FLAGS "-Wl,--disable-new-dtags")
-
-# install lib
-install(
-    TARGETS ne_vision
-    LIBRARY DESTINATION ne_vision_real/lib
-)
-
-# install bin
-install(
-    TARGETS
-    ne_vision_real
-    RUNTIME
-    DESTINATION ne_vision_real/bin
+###########
+# Install #
+###########
+install(TARGETS ne_vision_reality
+    RUNTIME DESTINATION bin
 )

@@ -62,7 +62,7 @@ endforeach()
 
 add_library(
     ${PROJECT_NAME}
-    SHARED
+    STATIC
     ${NE_VISION_SOURCES}
     ${NE_VISION_HEADERS}
 )
@@ -104,6 +104,7 @@ FetchContent_Declare(
 # Ensure rerun_sdk is built with -fPIC
 # so it can be linked into our shared library
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(rerun_sdk)
 target_link_libraries(${PROJECT_NAME} PUBLIC rerun_sdk)
 
@@ -134,10 +135,17 @@ target_precompile_headers(
 # Install #
 ###########
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/install_resource.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/install_resource.cmake)
 
 # Install library
-install(TARGETS ${PROJECT_NAME} DESTINATION lib)
+install(TARGETS ${PROJECT_NAME}
+        RUNTIME DESTINATION bin
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        COMPONENT runtime)
+
+# Install headers
+install(DIRECTORY include/ DESTINATION include)
 
 # Model
 install_resource(

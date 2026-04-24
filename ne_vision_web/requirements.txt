@@ -1,1 +1,2 @@
-fastapi\nuvicorn\npyzmq\npyyaml\nwebsockets\nopencv-python-headless\nJinja2
+fastapi
+uvicorn

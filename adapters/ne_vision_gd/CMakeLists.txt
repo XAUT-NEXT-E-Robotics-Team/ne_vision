@@ -177,9 +177,3 @@ install(TARGETS ne_vision_gd
         DESTINATION ${GD_SIM_GD_EXTENSION_DIR}
         LIBRARY DESTINATION ${GD_SIM_GD_EXTENSION_DIR}/lib
 )
-
-# Install libne_vision.so
-install(TARGETS ne_vision
-        DESTINATION ${GD_SIM_GD_EXTENSION_DIR}/lib
-        LIBRARY DESTINATION ${GD_SIM_GD_EXTENSION_DIR}/lib
-)

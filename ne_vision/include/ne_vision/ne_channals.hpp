@@ -68,6 +68,7 @@ public:
   NeChannels(NeChannels&&) = delete;
   NeChannels& operator=(NeChannels&&) = delete;
 
+  // 便捷指针获取
   auto frame_input_sPtr() const { return frame_input_sPtr_; }
   auto armor2d_sPtr() const { return armor2d_sPtr_; }
   auto imu_data_sPtr() const { return imu_data_sPtr_; }

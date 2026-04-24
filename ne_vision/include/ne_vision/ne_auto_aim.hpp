@@ -116,8 +116,6 @@ public:
 
   void DebugFrame(cv::Mat& frame);
 
-  // 获取输出结果
-  // 返回false指没有结果：具体是哪种情况需要根据状态区分
   inline void GetResult(NeAutoAimResult_t& result) const
   {
     std::lock_guard lock(mtx_);
@@ -125,8 +123,6 @@ public:
   }
 
   void Stop();
-
-  void GetResult(NeAutoAimResult_t& result);
 
   const NeParam& Params();
 

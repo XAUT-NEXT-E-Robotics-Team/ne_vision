@@ -12,7 +12,8 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_COLOR_DIAGNOSTICS": "ON"
+        "CMAKE_COLOR_DIAGNOSTICS": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/install"
       }
     },
     {
@@ -23,11 +24,22 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "NE_ENABLE_GDEXTENSION": "ON",
-        "NE_ENABLE_STANDALONE": "OFF",
-        "NE_ENABLE_ROS2": "OFF",
-        "USE_SYMLINK_INSTALL": "ON",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/install/godot"
+        "ADAPTER_ENABLE_NE_VISION_GD": "ON",
+        "ADAPTER_ENABLE_NE_VISION_REALITY": "OFF",
+        "USE_SYMLINK_INSTALL": "ON"
+      }
+    },
+    {
+      "name": "reality",
+      "displayName": "Reality 硬件",
+      "description": "开启 Reality 适配器",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ADAPTER_ENABLE_NE_VISION_GD": "OFF",
+        "ADAPTER_ENABLE_NE_VISION_REALITY": "ON",
+        "USE_SYMLINK_INSTALL": "OFF"
       }
     }
   ],
@@ -35,6 +47,10 @@
     {
       "name": "godot_sim",
       "configurePreset": "godot_sim"
+    },
+    {
+      "name": "reality",
+      "configurePreset": "reality"
     }
   ]
 }
