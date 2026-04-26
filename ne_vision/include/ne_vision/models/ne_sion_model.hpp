@@ -214,11 +214,6 @@ public:
   // 调试信息打印函数
   void DebugInfo();
 
-  Eigen::Vector3d
-  PredictAndChoose(const interfaces::NeImuData_t& imu_data,
-                   double                         b_ds,
-                   std::vector<Eigen::Vector3d>&  all_pred_armors);
-
   NeSionState_t GetState() const
   {
     return models_.at(current_model_idx_ >= 0 ? current_model_idx_ : 0)

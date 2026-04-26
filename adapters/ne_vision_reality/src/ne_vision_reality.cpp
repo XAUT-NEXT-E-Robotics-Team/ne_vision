@@ -43,6 +43,7 @@
 #include "ne_hik_driver/ne_hik_driver.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/ne_auto_aim.hpp"
+#include "ne_vision/utils/ne_math.hpp"
 
 #pragma pack(push, 1)
 struct GimbalInputProtocol_t
@@ -123,10 +124,10 @@ int main()
   // gimbal控制输出回调
   auto_aim.SetGimbalCallback([&](const auto& ref) {
     GimbalControlProtocol_t output_msg;
-    output_msg.yaw = ref.control_ref.yaw;
-    output_msg.pitch = ref.control_ref.pitch;
-    output_msg.yaw_v = ref.control_ref.yaw_v;
-    output_msg.pitch_v = ref.control_ref.pitch_v;
+    output_msg.yaw = math::WrapToPi(ref.control_ref.yaw);
+    output_msg.pitch = math::WrapToPi(ref.control_ref.pitch);
+    output_msg.yaw_v = math::WrapToPi(ref.control_ref.yaw_v);
+    output_msg.pitch_v = math::WrapToPi(ref.control_ref.pitch_v);
     // hit_probability未实装，暂置0
     output_msg.hit_probability = 0;
 

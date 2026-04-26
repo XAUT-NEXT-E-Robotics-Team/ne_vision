@@ -150,10 +150,8 @@ void NeSionModel::Predict(const interfaces::NeImuData_t& imu_data,
 {
   // 1. 计算加速度
   AccDate_t a;
-  // a.x() = imu_data.acc.x();
-  // a.y() = imu_data.acc.y();
-  a.x() = 0.0;
-  a.y() = 0.0;
+  a.x() = imu_data.acc.x();
+  a.y() = imu_data.acc.y();
 
   // 2. 根据当前是否已经选定模型来决定是对单个模型进行预测还是对所有模型进行预测
   if (current_model_idx_ < 0)
@@ -352,28 +350,20 @@ void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
       auto S = H * eP * H.transpose() + R;  // 预测测量协方差
       K = eP * H.transpose() * S.inverse(); // 卡尔曼增益
 
-      // 5. 角速度死区处理，如果角速度很小，就不更新半径
+      // 5 更新名义状态
+      ErrorState_t ex = K * r - (_I(K * H) - K * H) *
+                                    (x_pred - x_pred_start); // 误差状态更新量
+
+      // 6. 角速度死区处理，如果角速度很小，就不更新半径
       //    前如果是多假设观测，则需要锁死半径
-#if 1
       if (std::abs(x_pred.omega) < params_.omega_dead_band ||
           !model_is_only_one)
       {
-        K(R1_IDX, MEASURE_X_IDX) = 0;
-        K(R1_IDX, MEASURE_Y_IDX) = 0;
-        K(R1_IDX, MEASURE_Z_IDX) = 0;
-        K(R1_IDX, MEASURE_YAW_IDX) = 0;
-
-        K(R2_IDX, MEASURE_X_IDX) = 0;
-        K(R2_IDX, MEASURE_Y_IDX) = 0;
-        K(R2_IDX, MEASURE_Z_IDX) = 0;
-        K(R2_IDX, MEASURE_YAW_IDX) = 0;
+        ex(R1_IDX) = 0;
+        ex(R2_IDX) = 0;
       }
-#endif
+      x_pred += ex; // 更新名义状态
 
-      // 6 更新名义状态
-      auto ex = K * r -
-                (_I(K * H) - K * H) * (x_pred - x_pred_start); // 误差状态更新量
-      x_pred += ex;                                            // 更新名义状态
       if (ex.norm() < params_.epsilon)
       {
         // 如果更新量足够小就认为收敛了，提前退出迭代
@@ -509,54 +499,6 @@ void NeSionModel::adaptiveQAndDivergenceCheck(ModelStatus_t& model, double nis)
 }
 
 /* === 工具函数区 === */
-
-Eigen::Vector3d
-NeSionModel::PredictAndChoose(const interfaces::NeImuData_t& imu_data,
-                              double                         b_dt,
-                              std::vector<Eigen::Vector3d>&  all_pred_armors)
-{
-  // // 预测和选板
-
-  // // 1. 预测固定时间
-  // AccDate_t a;
-
-  // double total_dt = params_.additional_dt + b_dt;
-
-  // predictState(total_dt, _x, a, _x_pred);
-
-  // // 2. 选板
-  // //    我们选择最正对云台的一块装甲板
-
-  // double min_yaw_diff = std::numeric_limits<double>::max();
-
-  // Eigen::Vector3d aim_point = {_x_pred.p.x(), _x_pred.p.y(), 0};
-
-  // all_pred_armors.clear();
-  // for (int id = 0; id < 4; ++id)
-  // {
-  //   Measurement_t z_pred;
-  //   h(id, _x_pred, z_pred);
-
-  //   double yaw_a = z_pred(MEASURE_YAW_IDX);
-  //   double yaw_b = math::QuaternionToYaw(imu_data.quat);
-
-  //   double yaw_diff = math::WrapToPi(yaw_a - yaw_b);
-
-  //   if (yaw_diff < min_yaw_diff)
-  //   {
-  //     min_yaw_diff = yaw_diff;
-  //     aim_point.x() = z_pred(MEASURE_X_IDX);
-  //     aim_point.y() = z_pred(MEASURE_Y_IDX);
-  //     aim_point.z() = z_pred(MEASURE_Z_IDX);
-  //   }
-  //   all_pred_armors.emplace_back(
-  //       z_pred(MEASURE_X_IDX), z_pred(MEASURE_Y_IDX), z_pred(MEASURE_Z_IDX));
-  // }
-
-  // // NV_DEBUG("{} {} {}", aim_point.x(), aim_point.y(), aim_point.z());
-
-  return {};
-}
 
 // 名义状态预测函数
 void NeSionModel::predictState(const double        dt,

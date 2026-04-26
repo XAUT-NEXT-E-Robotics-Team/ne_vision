@@ -130,12 +130,15 @@ NeTracker2D::NeTracker2D(const std::string& name)
 
     // Transform from gimbal frame to camera frame.
     const Eigen::Vector3d euler_angle(
-        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["r"]
-            .as<double>(),
-        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["p"]
-            .as<double>(),
-        NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["y"]
-            .as<double>());
+        math::WrapToPi(math::DegToRad(
+            NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["r"]
+                .as<double>())),
+        math::WrapToPi(math::DegToRad(
+            NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["p"]
+                .as<double>())),
+        math::WrapToPi(math::DegToRad(
+            NV_PARAM["hardware"]["camera"]["gimbal_to_camera"]["r"]["y"]
+                .as<double>())));
     gimbal_to_camera_.q =
         Eigen::AngleAxisd(euler_angle.z(), Eigen::Vector3d::UnitZ()) *
         Eigen::AngleAxisd(euler_angle.y(), Eigen::Vector3d::UnitY()) *

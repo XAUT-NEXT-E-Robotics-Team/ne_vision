@@ -1,3 +1,3 @@
 cmake --preset reality
-cmake --build build
+cmake --build --preset reality
 cmake --install build
