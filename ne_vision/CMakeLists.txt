@@ -36,6 +36,8 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(ne_vision)
 
+option(NV_USE_TENSORRT "Use TensorRT backend for detector (requires CUDA + TensorRT)" OFF)
+
 #####################
 # Find dependencies #
 #####################
@@ -43,7 +45,22 @@ project(ne_vision)
 find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(OpenVINO REQUIRED)
+
+if(NV_USE_TENSORRT)
+    find_package(CUDAToolkit REQUIRED)
+    find_library(NVINFER_LIB nvinfer
+        HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+    find_library(NVINFER_PLUGIN_LIB nvinfer_plugin
+        HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu)
+    if(NOT NVINFER_LIB)
+        message(FATAL_ERROR "[ne_vision] TensorRT nvinfer not found. Install TensorRT or set NV_USE_TENSORRT=OFF")
+    endif()
+    enable_language(CUDA)
+    message(STATUS "[ne_vision] TensorRT backend enabled.")
+else()
+    find_package(OpenVINO REQUIRED)
+    message(STATUS "[ne_vision] OpenVINO backend enabled.")
+endif()
 
 #################################
 # Build basic ne_vision library #
@@ -53,6 +70,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 file(GLOB_RECURSE NE_VISION_SOURCES src/*.cpp src/*.c)
 file(GLOB_RECURSE NE_VISION_HEADERS include/*.h include/*.hpp)
+
+if(NV_USE_TENSORRT)
+    list(FILTER NE_VISION_SOURCES EXCLUDE REGEX ".*/openvino_infer\\.cpp$")
+else()
+    list(FILTER NE_VISION_SOURCES EXCLUDE REGEX ".*/ne_cu_infer\\.cpp$")
+    file(GLOB_RECURSE NV_CU_HEADERS include/ne_vision/detector/ne_cu/*.h include/ne_vision/detector/ne_cu/*.hpp)
+    list(REMOVE_ITEM NE_VISION_HEADERS ${NV_CU_HEADERS})
+endif()
 foreach(source_file ${NE_VISION_SOURCES})
     message(STATUS "[ne_vision] Source file: ${source_file}")
 endforeach()
@@ -112,12 +137,23 @@ target_link_libraries(
     ${PROJECT_NAME}
     PUBLIC
     ${OpenCV_LIBS}
-    openvino::runtime
     spdlog::spdlog
     Eigen3::Eigen
     yaml-cpp
     tinympcstatic
 )
+
+if(NV_USE_TENSORRT)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC NV_USE_TENSORRT)
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        CUDA::cudart
+        ${NVINFER_LIB}
+        ${NVINFER_PLUGIN_LIB}
+    )
+    set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+else()
+    target_link_libraries(${PROJECT_NAME} PUBLIC openvino::runtime)
+endif()
 
 ############
 # Optimize #

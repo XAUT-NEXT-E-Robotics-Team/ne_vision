@@ -50,8 +50,7 @@ namespace ne_vision
 
 NeAutoAim::NeAutoAim()
 {
-  result_atomic_.store(std::make_shared<NeAutoAimResult_t>(),
-                       std::memory_order_relaxed);
+  result_sPtr_ = std::make_shared<NeAutoAimResult_t>();
 }
 
 NeAutoAim::~NeAutoAim() { Stop(); }
@@ -116,14 +115,14 @@ void NeAutoAim::UpdateRobotInfo(char our_color, double bullet_velocity)
 
 void NeAutoAim::SetGimbalCallback(GimbalCallback_t cb)
 {
-  gimbal_cb_atomic_.store(std::make_shared<GimbalCallback_t>(std::move(cb)),
-                          std::memory_order_release);
+  std::lock_guard lock(cb_mtx_);
+  gimbal_cb_sPtr_ = std::make_shared<GimbalCallback_t>(std::move(cb));
 }
 
 void NeAutoAim::SetDebugCallback(DebugCallback_t cb)
 {
-  debug_cb_atomic_.store(std::make_shared<DebugCallback_t>(std::move(cb)),
-                         std::memory_order_release);
+  std::lock_guard lock(cb_mtx_);
+  debug_cb_sPtr_ = std::make_shared<DebugCallback_t>(std::move(cb));
 }
 
 /* === 生命周期 === */
@@ -186,7 +185,8 @@ void NeAutoAim::Stop()
 
 void NeAutoAim::GetResult(NeAutoAimResult_t& result) const
 {
-  auto ptr = result_atomic_.load(std::memory_order_acquire);
+  std::lock_guard lock(result_mtx_);
+  auto ptr = result_sPtr_;
   if (ptr)
     result = *ptr;
 }
@@ -241,9 +241,14 @@ void NeAutoAim::updateResult()
     new_result->control_ref.pitch_v = msg.pitch_v_ref;
   }
 
-  result_atomic_.store(new_result, std::memory_order_release);
+  std::lock_guard lock(result_mtx_);
+  result_sPtr_ = new_result;
 
-  auto cb = gimbal_cb_atomic_.load(std::memory_order_acquire);
+  std::shared_ptr<GimbalCallback_t> cb;
+  {
+    std::lock_guard lock2(cb_mtx_);
+    cb = gimbal_cb_sPtr_;
+  }
   if (cb && *cb)
     (*cb)(*new_result);
 }
@@ -252,7 +257,11 @@ void NeAutoAim::dispatchDebug()
 {
   // debug_frame channel 有新帧时唤醒（由 NeTask 调度）
   // 调试帧本身可通过 GetDebugFrame() 读取，回调只做通知
-  auto cb = debug_cb_atomic_.load(std::memory_order_acquire);
+  std::shared_ptr<DebugCallback_t> cb;
+  {
+    std::lock_guard lock(cb_mtx_);
+    cb = debug_cb_sPtr_;
+  }
   if (cb && *cb)
     (*cb)();
 }

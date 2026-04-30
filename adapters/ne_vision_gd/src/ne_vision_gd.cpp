@@ -183,7 +183,7 @@ void NeVisionGd::GetViualizeFrame(godot::Ref<godot::Image> gd_img)
   }
 
   cv::Mat vis_frame;
-  auto_aim_uPtr_->DebugFrame(vis_frame);
+  auto_aim_uPtr_->GetDebugFrame(vis_frame);
   if (vis_frame.empty())
   {
     return;
@@ -223,7 +223,6 @@ godot::Dictionary NeVisionGd::GetResult() const
     return dict;
   }
 
-  auto_aim_uPtr_->AutoAim();
   NeAutoAimResult_t result;
   auto_aim_uPtr_->GetResult(result);
 

@@ -203,16 +203,12 @@ private:
   std::atomic<bool> is_running_{false};
   double            muzzel_velocity_ = 20.0;
 
-  /* === 无锁结果存储（C++20 atomic<shared_ptr>） === */
+  std::shared_ptr<NeAutoAimResult_t> result_sPtr_;
+  mutable std::mutex                 result_mtx_;
 
-  // writer: updateResult()（task 线程）  reader: GetResult()（任意线程）
-  std::atomic<std::shared_ptr<NeAutoAimResult_t>> result_atomic_;
-
-  /* === 无锁回调存储 === */
-
-  // SetXxxCallback() store，updateResult/dispatchDebug load
-  std::atomic<std::shared_ptr<GimbalCallback_t>> gimbal_cb_atomic_;
-  std::atomic<std::shared_ptr<DebugCallback_t>>  debug_cb_atomic_;
+  std::shared_ptr<GimbalCallback_t> gimbal_cb_sPtr_;
+  std::shared_ptr<DebugCallback_t>  debug_cb_sPtr_;
+  mutable std::mutex                cb_mtx_;
 
   /* === Spin() 阻塞机制 === */
 

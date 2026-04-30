@@ -45,7 +45,7 @@
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/interfaces/ne_armors_2d.hpp"
 
-#include "ne_vision/detector/openvino_infer.hpp"
+#include "ne_vision/detector/infer_base.hpp"
 
 namespace ne_vision
 {
@@ -78,7 +78,7 @@ private:
 
   NeFrameInput_t frame_i_;
 
-  std::unique_ptr<infer::OpenvinoInfer> openvino_infer_uPtr_;
+  std::unique_ptr<infer::InferBase> infer_uPtr_;
 
   std::array<std::string, 9> labels_to_str_;
 };
