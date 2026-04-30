@@ -287,7 +287,7 @@ void NeTracker2D::trackAndChoose()
     }
 
     // 已经丢失了，选一个新的目标。
-    double          avg_distance_min = 0;
+    double          avg_distance_min = std::numeric_limits<double>::max();
     Eigen::Vector2d center(armors_2d_.frame_width / 2.0,
                            armors_2d_.frame_height / 2.0);
 
@@ -316,7 +316,7 @@ void NeTracker2D::trackAndChoose()
     // 注意上面哪个东西不可能是空的
     current_aim_.lost_count = 0;
     // 更新下当前装甲板ID
-    current_aim_.aim_id = armors_2d_.armors.at(0).armor_id;
+    current_aim_.aim_id = it2->first;
 
     for (const auto& armor_2d : it2->second)
       current_aim_.aim_armors.push_back({.armor = armor_2d});

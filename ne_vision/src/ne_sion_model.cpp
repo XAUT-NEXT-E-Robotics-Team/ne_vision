@@ -356,6 +356,7 @@ void NeSionModel::updateOnce(const interfaces::NeArmors3D_t& armors,
 
       // 6. 角速度死区处理，如果角速度很小，就不更新半径
       //    前如果是多假设观测，则需要锁死半径
+      // TODO: 这里考虑优化
       if (std::abs(x_pred.omega) < params_.omega_dead_band ||
           !model_is_only_one)
       {
