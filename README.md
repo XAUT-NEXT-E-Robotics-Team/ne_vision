@@ -2,20 +2,67 @@
 
 注意：自瞄核心部分与ROS2无关，原码可以通过修改cmake设置编译为GDExtension形式，ros2形式
 
-## 用
+## 构建
 
-以下内容在工程根目录下执行：
+### 依赖
 
+- CMake >= 3.22.1
+- Ninja
+- C++20 编译器
+
+### 预设
+
+项目使用 CMake Presets，两个主要预设：
+
+| 预设 | 用途 | 构建类型 |
+|------|------|----------|
+| `godot_sim` | Godot 仿真（开启 GD 适配器） | Debug |
+| `reality` | 真实硬件（开启串口 + 海康驱动 + Reality 适配器） | Release |
+
+### 仿真构建
+
+```bash
+cmake --preset godot_sim
+cmake --build --preset godot_sim
+cmake --install build
 ```
-python3 nv.py build # 编译
-source install/setup.sh # 设置环境变量
-python3 nv.py run -h # 查看可以运行什么
-python3 nv.py run ut # 运行所有单测
-python3 nv.py run mt_auto_aim_video_test # 运行视频测试
-# 仿真测试先不写了
+
+### 硬件构建（Reality）
+
+```bash
+cmake --preset reality
+cmake --build --preset reality
+cmake --install build
 ```
 
-视频测试中，按p可以暂停，按esc退出，按除以上外的任何键转到下一帧。（注意：该操作会影响KF）
+等价于直接运行：
+
+```bash
+./build_reality.sh
+```
+
+### 可选模块
+
+通过 CMake 选项手动开关（预设已配置好，一般无需手动设置）：
+
+| 选项 | 说明 | 默认 |
+|------|------|------|
+| `DRIVER_ENABLE_NE_SERIAL_DRIVER` | 串口驱动 | OFF |
+| `DRIVER_ENABLE_NE_HIK_DRIVER` | 海康相机驱动（需 MVS SDK） | OFF |
+| `ADAPTER_ENABLE_NE_VISION_GD` | Godot Extension 适配器 | OFF |
+| `ADAPTER_ENABLE_NE_VISION_REALITY` | Reality 硬件适配器 | OFF |
+| `EXTENSION_ENABLE_NE_DEBUG_ZMQ` | ZeroMQ 调试扩展 | OFF |
+
+### 运行测试
+
+```bash
+source install/setup.sh
+python3 nv.py run -h                      # 查看可运行目标
+python3 nv.py run ut                      # 所有单测
+python3 nv.py run mt_auto_aim_video_test  # 视频测试
+```
+
+视频测试：`p` 暂停，`Esc` 退出，其他键下一帧（注意：逐帧操作会影响 KF 状态）。
 
 ## 文档索引
 
