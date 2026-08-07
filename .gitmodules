@@ -1,5 +1,5 @@
 [submodule " adapters/gdextension/3rds/godot-cpp"]
-	path = adapters/gdextension/3rds/godot-cpp
+	path = adapters/ne_vision_gd/3rds/godot-cpp
 	url = https://github.com/godotengine/godot-cpp.git
 	branch = 4.5
 [submodule "ne_vision/3rds/yaml-cpp"]

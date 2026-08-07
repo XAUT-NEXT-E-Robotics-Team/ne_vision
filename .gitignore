@@ -10,3 +10,5 @@ scripts/__pycache__/
 .cache/
 .venv/
 .DS_Store
+.claude/
+GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
