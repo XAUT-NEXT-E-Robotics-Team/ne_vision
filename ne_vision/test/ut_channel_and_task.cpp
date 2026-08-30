@@ -60,11 +60,11 @@ TEST(NeChannelTest, PopOnRead)
 
   int val;
   EXPECT_TRUE(channel.Receive(val));
-  EXPECT_EQ(val, 1);
+  EXPECT_EQ(val, 2);
   EXPECT_EQ(channel.Size(), 1);
 
   EXPECT_TRUE(channel.Receive(val));
-  EXPECT_EQ(val, 2);
+  EXPECT_EQ(val, 1);
   EXPECT_TRUE(channel.Empty());
 
   EXPECT_FALSE(channel.Receive(val));
@@ -103,10 +103,10 @@ TEST(NeChannelTest, BufferOverflow)
 
   int val;
   EXPECT_TRUE(channel.Receive(val));
-  EXPECT_EQ(val, 2); // Oldest was 1, so now 2 is front
+  EXPECT_EQ(val, 3); // Receive defaults to the newest element.
 
   EXPECT_TRUE(channel.Receive(val));
-  EXPECT_EQ(val, 3);
+  EXPECT_EQ(val, 2);
 }
 
 TEST(NeChannelTest, ThreadSafety)
@@ -218,24 +218,26 @@ TEST(NeChannelTest, FindClosestPair)
       "closest_pair_channel", NeChannelType_e::KEEP_ON_READ, 10);
   auto start_time = std::chrono::steady_clock::now();
 
-  // 1. Test with less than 2 elements
+  // 1. A single element is returned as both sides of the bracket.
   TimedData data1 = {start_time + 100ms, 1};
-  channel.Transmit(data1);
+  channel.Transmit(data1, data1.timestamp);
   std::pair<TimedData, TimedData> result_pair;
-  EXPECT_FALSE(channel.FindClosestPair(
+  EXPECT_TRUE(channel.FindClosestPair(
       start_time, result_pair, [](const TimedData& data) {
         return data.timestamp;
       }));
+  EXPECT_EQ(result_pair.first.id, 1);
+  EXPECT_EQ(result_pair.second.id, 1);
 
   // 2. Populate the channel
   TimedData data2 = {start_time + 200ms, 2};
   TimedData data3 = {start_time + 300ms, 3};
   TimedData data4 = {start_time + 400ms, 4};
   TimedData data5 = {start_time + 500ms, 5};
-  channel.Transmit(data2);
-  channel.Transmit(data3);
-  channel.Transmit(data4);
-  channel.Transmit(data5);
+  channel.Transmit(data2, data2.timestamp);
+  channel.Transmit(data3, data3.timestamp);
+  channel.Transmit(data4, data4.timestamp);
+  channel.Transmit(data5, data5.timestamp);
   EXPECT_EQ(channel.Size(), 5);
 
   // 3. Test a time between two points
@@ -254,7 +256,7 @@ TEST(NeChannelTest, FindClosestPair)
         return data.timestamp;
       }));
   EXPECT_EQ(result_pair.first.id, 1);
-  EXPECT_EQ(result_pair.second.id, 2);
+  EXPECT_EQ(result_pair.second.id, 1);
 
   // 5. Test a time after all points
   auto search_time3 = start_time + 600ms;
@@ -262,7 +264,7 @@ TEST(NeChannelTest, FindClosestPair)
       search_time3, result_pair, [](const TimedData& data) {
         return data.timestamp;
       }));
-  EXPECT_EQ(result_pair.first.id, 4);
+  EXPECT_EQ(result_pair.first.id, 5);
   EXPECT_EQ(result_pair.second.id, 5);
 
   // 6. Test a time that exactly matches a point
@@ -271,8 +273,203 @@ TEST(NeChannelTest, FindClosestPair)
       search_time4, result_pair, [](const TimedData& data) {
         return data.timestamp;
       }));
-  EXPECT_EQ(result_pair.first.id, 3);
+  EXPECT_EQ(result_pair.first.id, 4);
   EXPECT_EQ(result_pair.second.id, 4);
+}
+
+TEST(NeChannelTest, OrderedQueriesWithOutOfOrderTransmit)
+{
+  NeChannel<TimedData> channel(
+      "out_of_order_channel", NeChannelType_e::KEEP_ON_READ, 10);
+  auto start_time = std::chrono::steady_clock::now();
+
+  TimedData data1 = {start_time + 100ms, 1};
+  TimedData data2 = {start_time + 200ms, 2};
+  TimedData data3 = {start_time + 300ms, 3};
+
+  channel.Transmit(data1, data1.timestamp);
+  channel.Transmit(data3, data3.timestamp);
+  channel.Transmit(data2, data2.timestamp);
+
+  std::pair<TimedData, TimedData> result_pair;
+  EXPECT_TRUE(channel.FindClosestPair(
+      start_time + 250ms,
+      result_pair,
+      [](const TimedData& data) { return data.timestamp; }));
+  EXPECT_EQ(result_pair.first.id, 2);
+  EXPECT_EQ(result_pair.second.id, 3);
+
+  auto recent = channel.GetDataSince(
+      start_time + 150ms,
+      [](const TimedData& data) { return data.timestamp; });
+  ASSERT_EQ(recent.size(), 2);
+  EXPECT_EQ(recent[0].id, 2);
+  EXPECT_EQ(recent[1].id, 3);
+
+  TimedData found;
+  EXPECT_TRUE(channel.Find(found, [](const TimedData& data) {
+    return data.id == 2;
+  }));
+  EXPECT_EQ(found.id, 2);
+}
+
+// -----------------------------------------------------------------------------
+// Channel Synchronizer Tests
+// -----------------------------------------------------------------------------
+
+struct InterpolatableData
+{
+  double value = 0;
+
+  static InterpolatableData
+  Interpolate(const InterpolatableData& lhs,
+              const InterpolatableData& rhs,
+              const NeChannelStamp_t&   lhs_stamp,
+              const NeChannelStamp_t&   rhs_stamp,
+              const NeChannelStamp_t&   target_stamp)
+  {
+    const auto ratio =
+        std::chrono::duration<double>(target_stamp - lhs_stamp).count() /
+        std::chrono::duration<double>(rhs_stamp - lhs_stamp).count();
+    return {lhs.value + (rhs.value - lhs.value) * ratio};
+  }
+};
+
+TEST(NeChannelSynchronizerTest, SelectsNearestData)
+{
+  const auto start = std::chrono::steady_clock::now();
+
+  // 目标距离前一个数据更近。
+  {
+    auto target = std::make_shared<NeChannel<int>>(
+        "target_before", NeChannelType_e::KEEP_ON_READ, 4);
+    auto samples = std::make_shared<NeChannel<int>>(
+        "samples_before", NeChannelType_e::KEEP_ON_READ, 4);
+    target->Transmit(100, start + 100ms);
+    samples->Transmit(80, start + 80ms);
+    samples->Transmit(130, start + 130ms);
+
+    NeChannelSynchronizer synchronizer(target, samples);
+    ASSERT_EQ(synchronizer.Sync(), NeChannelSyncResult_e::SUCCESS);
+
+    int result = 0;
+    EXPECT_EQ(synchronizer.GetResultData(samples, result),
+              NeChannelSyncMatchStatus_e::SUCCESS);
+    EXPECT_EQ(result, 80);
+
+    NeChannelSyncSlot<int> slot{samples};
+    EXPECT_EQ(synchronizer.GetResultSlot(samples, slot),
+              NeChannelSyncMatchStatus_e::SUCCESS);
+    EXPECT_DOUBLE_EQ(slot.time_diff_ms, -20.0);
+  }
+
+  // 目标距离后一个数据更近。
+  {
+    auto target = std::make_shared<NeChannel<int>>(
+        "target_after", NeChannelType_e::KEEP_ON_READ, 4);
+    auto samples = std::make_shared<NeChannel<int>>(
+        "samples_after", NeChannelType_e::KEEP_ON_READ, 4);
+    target->Transmit(120, start + 120ms);
+    samples->Transmit(80, start + 80ms);
+    samples->Transmit(130, start + 130ms);
+
+    NeChannelSynchronizer synchronizer(target, samples);
+    ASSERT_EQ(synchronizer.Sync(), NeChannelSyncResult_e::SUCCESS);
+
+    int result = 0;
+    EXPECT_EQ(synchronizer.GetResultData(samples, result),
+              NeChannelSyncMatchStatus_e::SUCCESS);
+    EXPECT_EQ(result, 130);
+  }
+
+  // 距离相同时固定选择时间更早的数据。
+  {
+    auto target = std::make_shared<NeChannel<int>>(
+        "target_equal", NeChannelType_e::KEEP_ON_READ, 4);
+    auto samples = std::make_shared<NeChannel<int>>(
+        "samples_equal", NeChannelType_e::KEEP_ON_READ, 4);
+    target->Transmit(105, start + 105ms);
+    samples->Transmit(80, start + 80ms);
+    samples->Transmit(130, start + 130ms);
+
+    NeChannelSynchronizer synchronizer(target, samples);
+    ASSERT_EQ(synchronizer.Sync(), NeChannelSyncResult_e::SUCCESS);
+
+    int result = 0;
+    EXPECT_EQ(synchronizer.GetResultData(samples, result),
+              NeChannelSyncMatchStatus_e::SUCCESS);
+    EXPECT_EQ(result, 80);
+  }
+}
+
+TEST(NeChannelSynchronizerTest, UsesWatermarkAndInterpolation)
+{
+  const auto start = std::chrono::steady_clock::now();
+  auto target = std::make_shared<NeChannel<int>>(
+      "target", NeChannelType_e::KEEP_ON_READ, 4);
+  auto samples = std::make_shared<NeChannel<InterpolatableData>>(
+      "interpolatable", NeChannelType_e::KEEP_ON_READ, 4);
+
+  target->Transmit(100, start + 100ms);
+  samples->Transmit({8.0}, start + 80ms);
+  samples->Transmit({12.0}, start + 120ms);
+
+  NeChannelSynchronizer synchronizer(target, samples);
+  ASSERT_EQ(synchronizer.Sync(), NeChannelSyncResult_e::SUCCESS);
+  EXPECT_EQ(synchronizer.GetTargetStamp(), start + 100ms);
+
+  InterpolatableData result;
+  EXPECT_EQ(synchronizer.GetResultData(samples, result),
+            NeChannelSyncMatchStatus_e::SUCCESS);
+  EXPECT_DOUBLE_EQ(result.value, 10.0);
+
+  NeChannelSyncSlot<InterpolatableData> slot{samples};
+  ASSERT_EQ(synchronizer.GetResultSlot(samples, slot),
+            NeChannelSyncMatchStatus_e::SUCCESS);
+  EXPECT_DOUBLE_EQ(slot.time_diff_ms, 0.0);
+  EXPECT_FALSE(slot.is_target);
+}
+
+TEST(NeChannelSynchronizerTest, ReturnsWarningForTargetBeforeOldest)
+{
+  const auto start = std::chrono::steady_clock::now();
+  auto target = std::make_shared<NeChannel<int>>(
+      "target", NeChannelType_e::KEEP_ON_READ, 4);
+  auto samples = std::make_shared<NeChannel<int>>(
+      "samples", NeChannelType_e::KEEP_ON_READ, 4);
+
+  target->Transmit(100, start + 100ms);
+  samples->Transmit(130, start + 130ms);
+
+  NeChannelSynchronizer synchronizer(target, samples);
+  ASSERT_EQ(synchronizer.Sync(),
+            NeChannelSyncResult_e::SUCCESS_WITH_WARNING);
+
+  int result = 0;
+  EXPECT_EQ(synchronizer.GetResultData(samples, result),
+            NeChannelSyncMatchStatus_e::TARGET_BEFORE_OLDEST);
+  EXPECT_EQ(result, 130);
+}
+
+TEST(NeChannelSynchronizerTest, RejectsReadsWhileNotReady)
+{
+  auto first = std::make_shared<NeChannel<int>>(
+      "first", NeChannelType_e::KEEP_ON_READ, 4);
+  auto empty = std::make_shared<NeChannel<int>>(
+      "empty", NeChannelType_e::KEEP_ON_READ, 4);
+  first->Transmit(1);
+
+  NeChannelSynchronizer synchronizer(first, empty);
+
+  EXPECT_DEATH((void)synchronizer.GetTargetStamp(), "Synchronizer is not ready");
+
+  int result = 0;
+  EXPECT_DEATH((void)synchronizer.GetResultData(first, result),
+               "Synchronizer is not ready");
+
+  ASSERT_EQ(synchronizer.Sync(), NeChannelSyncResult_e::NOT_READY);
+  EXPECT_DEATH((void)synchronizer.GetResultData(first, result),
+               "Synchronizer is not ready");
 }
 
 // -----------------------------------------------------------------------------

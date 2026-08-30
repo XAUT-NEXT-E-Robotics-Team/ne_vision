@@ -154,10 +154,10 @@ func _physics_process(delta: float) -> void:
 			should_track = true
 			# C++ 输出为 IMU 世界系(FLU右手系)绝对角度，转换回 Godot 坐标系
 			# IMU yaw(绕Z轴) -> Godot rotation.y;  IMU pitch(绕Y轴) -> Godot rotation.z = -IMU.y
-			target_yaw   = result["yaw"]
-			target_pitch = -result["pitch"]
-			target_yaw_v   = result["yaw_v"]
-			target_pitch_v = -result["pitch_v"]
+			# target_yaw   = result["yaw"]
+			# target_pitch = -result["pitch"]
+			# target_yaw_v   = result["yaw_v"]
+			# target_pitch_v = -result["pitch_v"]
 			# print("yaw", target_yaw, "pitch", target_pitch);
 
 			# 加上面板中设置的额外偏移

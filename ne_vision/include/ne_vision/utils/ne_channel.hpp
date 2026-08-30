@@ -29,47 +29,81 @@
 //                                                       //
 ///////////////////////////////////////////////////////////
 
-/**
- * @file ne_channel.hpp
- * @author ziyedeyuu@163.com (Zhaoyu Chen)
- * @brief A thread-safe channel mechanism for CSP-style inter-thread
- * communication.
- *
- * Provides a generic channel class for message passing between threads.
- * It supports different behaviors on read (pop or keep) and allows tasks
- * to wait efficiently for new data using condition variables.
- */
+// Description:
+// 整个自瞄系统是通过channel通信的
+// 每一个channel可以理解为一个ros的topic
 
 #pragma once
 
-#include <cmath>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <deque>
 #include <mutex>
+#include <optional>
+#include <type_traits>
 #include <vector>
 #include <algorithm>
+#include <tuple>
+#include <utility>
+#include <concepts>
 
 #include "ne_vision/utils/ne_debug.hpp"
+#include "ne_vision/utils/ne_tools.hpp"
 
 namespace ne_vision
 {
 
-/**
- * @brief Defines the behavior of the channel when data is read.
- */
-enum class NeChannelType_e
-{
-  POP_ON_READ = 0,  ///< The data will be popped after being read.
-  KEEP_ON_READ = 1, ///< The data will be kept after being read.
-};
-
 /// @brief A pair containing a condition variable and a boolean notification
 /// flag.
-using CvPair_t = std::pair<std::condition_variable, bool>;
-/// @brief A shared pointer to a CvPair_t, used to manage CVs for waiting tasks.
-using CvPairSPtr_t = std::shared_ptr<CvPair_t>;
+using CvBracket_t = std::pair<std::condition_variable, bool>;
+/// @brief A shared pointer to a CvBracket_t, used to manage CVs for waiting
+/// tasks.
+using CvPairSPtr_t = std::shared_ptr<CvBracket_t>;
+using NeChannelStamp_t = std::chrono::steady_clock::time_point;
+
+// 这是读取数据的两种方式，阅后保留或阅后即焚
+enum class NeChannelType_e
+{
+  POP_ON_READ = 0,
+  KEEP_ON_READ = 1,
+};
+
+struct NeChannelHeader_t
+{
+  NeChannelHeader_t()
+      : frame("default"), stamp(std::chrono::steady_clock::now())
+  {
+  }
+
+  std::string      frame;
+  NeChannelStamp_t stamp;
+};
+
+template <typename T>
+struct NeChannelData_t
+{
+  NeChannelHeader_t header;
+  T                 data;
+};
+
+// 时间戳查询结果。目标时间位于缓存范围内时，first 和 second 包围
+// 目标时间；精确命中时二者相同。目标时间越界时，二者均为最近的
+// 边界数据。
+template <typename T>
+struct NeChannelBracket_t
+{
+  enum
+  {
+    NO_DATA = 0,              // 缓存中没有数据，first 和 second 无效
+    TARGET_BEFORE_OLDEST = 1, // 目标早于最旧数据，二者均为最旧数据
+    TARGET_AFTER_NEWEST = 2,  // 目标晚于最新数据，二者均为最新数据
+    IN_RANGE = 3 // 目标在缓存范围内；精确命中时 first 和 second 相同
+  } status = NO_DATA;
+
+  NeChannelData_t<T> first;
+  NeChannelData_t<T> second;
+};
 
 /**
  * @brief Base class for channels, providing a mechanism for tasks to wait for
@@ -79,22 +113,9 @@ using CvPairSPtr_t = std::shared_ptr<CvPair_t>;
 class NeChannelBase
 {
 public:
-  /**
-   * @brief Default constructor.
-   */
   NeChannelBase() = default;
-  /**
-   * @brief Default virtual destructor.
-   */
   virtual ~NeChannelBase() = default;
 
-  /**
-   * @brief Registers a condition variable pair to be notified when new data is
-   * transmitted.
-   * @note This method is thread-safe.
-   * @param cv_pair_sPtr A shared pointer to the condition variable pair to
-   * register.
-   */
   void RegisterCv(const CvPairSPtr_t& cv_pair_sPtr)
   {
     std::lock_guard<std::mutex> lock(mtx__);
@@ -106,26 +127,11 @@ public:
     cv_pair_sPtrs_.push_back(cv_pair_sPtr);
   }
 
-  /**
-   * @brief Gets the name of the channel.
-   * @return The name of the channel.
-   */
+  // GetName用于获取当前channel的名称
+  // 这个方法是个MAGIC方法，log会识别调用命名空间下是否有GetName方法，
+  // 并将对应的名字打印出来，方便调试
   inline std::string GetName() { return name__; }
 
-  /**
-   * @brief Blocks the calling thread until notified or a stop is requested.
-   *
-   * This method encapsulates the condition variable waiting logic. It locks the
-   * channel's internal mutex and waits on the condition variable associated
-   * with the provided cv_pair_sPtr. The thread will unblock when another thread
-   * calls Transmit() or when the stop_token is triggered. After waiting, it
-   * resets the notification flag.
-   *
-   * @note This method is thread-safe.
-   * @param cv_pair_sPtr The specific condition variable pair this thread should
-   * wait on.
-   * @param stoken A stop_token to allow for early exit from waiting.
-   */
   void WaitForData(const CvPairSPtr_t& cv_pair_sPtr, std::stop_token& stoken)
   {
     std::unique_lock<std::mutex> lock(mtx__);
@@ -146,130 +152,119 @@ protected:
   /// @brief The name of the channel, used for logging and debugging.
   std::string name__ = "UnnamedChannel";
   /// @brief The internal mutex protecting both the data queue and the CV list.
-  std::mutex mtx__;
+  mutable std::mutex mtx__;
 };
 
-/**
- * @brief A thread-safe, single-producer, multi-consumer channel for message
- * passing.
- *
- * This class provides a fixed-size buffer for communication between threads.
- * When the buffer is full, transmitting new data will cause the oldest data to
- * be dropped.
- * @tparam T The type of data to be transmitted through the channel.
- */
 template <typename T>
 class NeChannel : public NeChannelBase
 {
 public:
-  /**
-   * @brief Construct a new NeChannel object.
-   *
-   * @param name The name of the channel, used for logging/debugging.
-   * @param type The behavior of the channel on receive (pop or keep).
-   * @param size The maximum size of the internal data buffer.
-   */
+  // Channel名称，类型，大小
   explicit NeChannel(const std::string& name, NeChannelType_e type, size_t size)
       : type_(type), channel_size_(size)
   {
     name__ = name;
+    NV_ASSERT(size > 0 && "Channel size must be greater than 0");
   }
-  /**
-   * @brief Default destructor.
-   */
+
   ~NeChannel() = default;
 
-  /**
-   * @brief Transmits data into the channel.
-   *
-   * If the channel's buffer is full, the oldest data will be removed to make
-   * space. If any tasks are waiting on a registered condition variable, they
-   * will be notified.
-   * @note This method is thread-safe.
-   * @param data The data to be transmitted.
-   */
-  void Transmit(const T& data)
+  // 朴实无华的发送函数
+  // 标准发送函数
+  void Transmit(const T& data, const NeChannelHeader_t& header)
   {
     std::unique_lock<std::mutex> lock(mtx__);
 
-    for (; data_queue_.size() >= channel_size_;)
-    {
-      data_queue_.pop_front();
-    }
-    data_queue_.push_back(data);
+    // 发送数据
 
-    // If cv is set, notify the waiting task to read data immediately.
-    if (cv_pair_sPtrs_.empty())
+    // 拼接数据
+    NeChannelData_t<T> data_raw;
+    data_raw.header = header;
+    data_raw.data = data;
+
+    // 判断当前时间是否符合顺序
+    if (!data_queue_.empty() &&
+        data_raw.header.stamp >= data_queue_.back().header.stamp)
     {
-      return;
+      // 如果是，直接发送
+      data_queue_.push_back(data_raw);
     }
     else
     {
+      // 如果不是，进行排序插入
+      auto it = std::upper_bound(
+          data_queue_.begin(),
+          data_queue_.end(),
+          data_raw.header.stamp,
+          [](const NeChannelStamp_t& stamp, const NeChannelData_t<T>& item) {
+            return stamp < item.header.stamp;
+          });
+      data_queue_.insert(it, data_raw);
+    }
+
+    // 维护队列长度
+    for (; data_queue_.size() > channel_size_;)
+      data_queue_.pop_front();
+
+    // 如果设置了CV，则通知所有等待的线程有新数据到来
+    if (cv_pair_sPtrs_.empty())
+      return;
+    else
       for (const auto& cv_pair_sPtr : cv_pair_sPtrs_)
-      {
         if (cv_pair_sPtr != nullptr)
         {
           // Set the notification status to true before notifying.
           cv_pair_sPtr->second = true;
           cv_pair_sPtr->first.notify_all();
         }
-      }
-    }
   }
 
-  /**
-   * @brief Receives data from the channel.
-   *
-   * @note This method is thread-safe.
-   * @param[out] data A reference to store the received data.
-   * @param newest If true, retrieves the newest data without popping it (only
-   * applicable for KEEP_ON_READ channels). If false, retrieves the oldest data
-   * (default behavior).
-   * @return true if data was successfully received, false if the channel was
-   * empty.
-   */
-  bool Receive(T& data, bool newest = false)
+  // 简化版发送函数
+  void Transmit(const T&         data,
+                NeChannelStamp_t stamp = std::chrono::steady_clock::now())
+  {
+    NeChannelHeader_t header;
+    header.stamp = stamp;
+    Transmit(data, header);
+  }
+
+  // 接收原始数据
+  bool ReceiveRaw(NeChannelData_t<T>& data_raw, bool newest = true)
   {
     std::unique_lock<std::mutex> lock(mtx__);
 
     if (data_queue_.empty())
-    {
       return false;
-    }
 
-    // Copy the data, and pop it if the channel type is POP_ON_READ.
-    if (newest && type_ == NeChannelType_e::KEEP_ON_READ)
+    // 根据 newest 参数决定是取最新的数据还是最旧的数据
+    if (newest)
     {
-      data = data_queue_.back();
+      data_raw = data_queue_.back();
       if (type_ == NeChannelType_e::POP_ON_READ)
-      {
         data_queue_.pop_back();
-      }
     }
     else
     {
-      data = data_queue_.front();
+      data_raw = data_queue_.front();
       if (type_ == NeChannelType_e::POP_ON_READ)
-      {
         data_queue_.pop_front();
-      }
     }
     return true;
   }
 
-  /**
-   * @brief Finds an element in the channel that satisfies a predicate.
-   *
-   * This method is only available for channels of type KEEP_ON_READ.
-   * It iterates through the data queue and returns the first element
-   * for which the predicate returns true.
-   *
-   * @note This method is thread-safe.
-   * @param[out] data A reference to store the found data.
-   * @param predicate A unary predicate that takes an element of type const T&
-   *                  and returns true if it's the desired element.
-   * @return true if an element was found, false otherwise.
-   */
+  // 接收数据
+  bool Receive(T& data, bool newest = true)
+  {
+
+    NeChannelData_t<T> data_raw;
+    if (!ReceiveRaw(data_raw, newest))
+      return false;
+
+    data = data_raw.data;
+    return true;
+  }
+
+  // 临时兼容
   template <typename Predicate>
   bool Find(T& data, Predicate predicate)
   {
@@ -280,9 +275,9 @@ public:
 
     for (const auto& item : data_queue_)
     {
-      if (predicate(item))
+      if (predicate(item.data))
       {
-        data = item;
+        data = item.data;
         return true;
       }
     }
@@ -290,82 +285,110 @@ public:
     return false;
   }
 
-  /**
-   * @brief Finds the two elements in the channel with timestamps closest to the
-   * given time.
-   *
-   * This method is only available for channels of type KEEP_ON_READ.
-   * It performs a binary search to find the two closest elements.
-   * The elements in the channel are expected to be sorted by timestamp.
-   *
-   * @note This method is thread-safe.
-   * @param time The time point to search for.
-   * @param[out] result A pair to store the two closest elements.
-   * @return true if a pair was found (i.e., channel has >= 2 elements), false
-   * otherwise.
-   * @tparam TimestampExtractor A callable that takes a const T& and returns a
-   * std::chrono::steady_clock::time_point.
-   */
+  // 临时兼容
   template <typename TimestampExtractor>
   bool FindClosestPair(const std::chrono::steady_clock::time_point& time,
                        std::pair<T, T>&                             result,
                        TimestampExtractor get_timestamp)
   {
+    auto re = FindBracket(time);
+
+    if (re.status != NeChannelBracket_t<T>::NO_DATA)
+    {
+      result.first = re.first.data;
+      result.second = re.second.data;
+      return true;
+    }
+
+    return false;
+  }
+
+  // 寻找两个数据包含特定的时间戳
+  NeChannelBracket_t<T> FindBracket(const NeChannelStamp_t& stamp)
+  {
+    using Bracket_t = NeChannelBracket_t<T>;
+
     std::unique_lock<std::mutex> lock(mtx__);
 
-    NV_ASSERT(type_ == NeChannelType_e::KEEP_ON_READ &&
-              "Channel type must be KEEP_ON_READ");
+    Bracket_t result;
 
-    if (data_queue_.size() < 2)
+    if (data_queue_.empty())
     {
-      return false;
+      result.status = Bracket_t::NO_DATA;
+      return result;
     }
 
-    auto it = std::lower_bound(
-        data_queue_.begin(),
-        data_queue_.end(),
-        time,
-        [&](const T& element, const std::chrono::steady_clock::time_point& t) {
-          return get_timestamp(element) < t;
-        });
-
-    if (it == data_queue_.begin())
+    // 如果只有一个数据而且时间不等于，在这里已经解决掉了
+    if (stamp < data_queue_.front().header.stamp)
     {
-      result = {data_queue_[0], data_queue_[1]};
+      // 如果所有数据中最老的都比目标大
+      result.status = Bracket_t::TARGET_BEFORE_OLDEST;
+      result.first = data_queue_.front();
+      result.second = data_queue_.front();
     }
-    else if (it == data_queue_.end())
+    else if (stamp > data_queue_.back().header.stamp)
     {
-      result = {data_queue_[data_queue_.size() - 2],
-                data_queue_[data_queue_.size() - 1]};
+      // 如果所有数据中最新的都比目标小
+      result.status = Bracket_t::TARGET_AFTER_NEWEST;
+      result.first = data_queue_.back();
+      result.second = data_queue_.back();
     }
     else
     {
-      result = {*(it - 1), *it};
+      result.status = Bracket_t::IN_RANGE;
+
+      // lower_bound返回第一个大于等于目标的迭代器
+      auto it = std::lower_bound(
+          data_queue_.begin(),
+          data_queue_.end(),
+          stamp,
+          [](const NeChannelData_t<T>& item, const NeChannelStamp_t& t) {
+            return item.header.stamp < t;
+          });
+
+      if (it->header.stamp == stamp)
+      {
+        // 这里只能是等于
+        result.first = *it;
+        result.second = *it;
+      }
+      else
+      {
+        // 这里 it - 1就是小的
+        result.first = *(it - 1);
+        result.second = *it;
+      }
     }
 
-    return true;
+    return result;
   }
 
-  std::deque<T> GetAllData()
+  std::deque<NeChannelData_t<T>> GetAllDataRaw()
   {
     std::unique_lock<std::mutex> lock(mtx__);
     return data_queue_;
   }
 
-  /**
-   * @brief Gets all elements in the channel with timestamps strictly after the
-   * given time.
-   *
-   * This method performs a binary search to find the first element after the
-   * specified time. The elements in the channel are expected to be sorted by
-   * timestamp.
-   *
-   * @note This method is thread-safe.
-   * @param time The time point to use as a lower bound.
-   * @param get_timestamp A callable to extract the timestamp from a channel
-   * element.
-   * @return A vector of elements with timestamps > time.
-   */
+  std::deque<T> GetAllData()
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+
+    std::deque<T> data_only;
+    for (const auto& item : data_queue_)
+      data_only.push_back(item.data);
+    return data_only;
+  }
+
+  // 获取最新数据的时间戳
+  std::optional<NeChannelStamp_t> GetNewestStamp()
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+    if (data_queue_.empty())
+      return std::nullopt;
+    return data_queue_.back().header.stamp;
+  }
+
+  // 临时兼容
   template <typename TimestampExtractor>
   std::vector<T> GetDataSince(const std::chrono::steady_clock::time_point& time,
                               TimestampExtractor get_timestamp)
@@ -378,37 +401,343 @@ public:
       return result;
     }
 
-    auto it = std::upper_bound(
-        data_queue_.begin(),
-        data_queue_.end(),
-        time,
-        [&](const std::chrono::steady_clock::time_point& t, const T& item) {
-          return t < get_timestamp(item);
-        });
+    auto it =
+        std::upper_bound(data_queue_.begin(),
+                         data_queue_.end(),
+                         time,
+                         [&](const std::chrono::steady_clock::time_point& t,
+                             const NeChannelData_t<T>& item) {
+                           return t < get_timestamp(item.data);
+                         });
 
-    result.insert(result.end(), it, data_queue_.end());
+    result.reserve(static_cast<size_t>(std::distance(it, data_queue_.end())));
+    for (; it != data_queue_.end(); ++it)
+      result.push_back(it->data);
     return result;
   }
 
-  /**
-   * @brief Gets the current number of elements in the channel.
-   * @return The number of elements.
-   */
-  inline size_t Size() const { return data_queue_.size(); }
+  // 当前大小
+  inline size_t Size() const
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+    return data_queue_.size();
+  }
 
-  /**
-   * @brief Checks if the channel is empty.
-   * @return true if the channel is empty, false otherwise.
-   */
-  inline bool Empty() const { return data_queue_.empty(); }
+  // 判空
+  inline bool Empty() const
+  {
+    std::unique_lock<std::mutex> lock(mtx__);
+    return data_queue_.empty();
+  }
+
+  // 获取channel的类型
+  inline NeChannelType_e GetType() const { return type_; }
+
+  // 公开数据类型
+  using MessageType = T;
 
 private:
-  /// @brief The behavior of the channel on receive.
+  // 数据的处理方式
   NeChannelType_e type_;
-  /// @brief The maximum size of the data buffer.
+
+  // channel的最大容量
   size_t channel_size_ = 0;
-  /// @brief The internal deque used as a data buffer.
-  std::deque<T> data_queue_;
+
+  // 数据队列，存储传输的数据
+  std::deque<NeChannelData_t<T>> data_queue_;
+};
+
+// === 同步器相关 === //
+
+// 这里可能会牵扯一点复杂模版操作
+
+// 对应数据对齐状态
+enum class NeChannelSyncMatchStatus_e
+{
+  FAIL = 0,                 // 失败，一般是没有数据
+  IS_TARGET = 1,            // 本数据最新，为时间基准
+  SUCCESS = 2,              // 成功，数据已经同步
+  TARGET_BEFORE_OLDEST = 3, // 基准数据早于最旧数据，同步数据不准
+  TARGET_AFTER_NEWEST = 4,  // 基准数据晚于最新数据，同步数据不准
+};
+
+// 对应同步器状态
+enum class NeChannelSyncResult_e
+{
+  SUCCESS,              // 成功，所有数据对齐
+  SUCCESS_WITH_WARNING, // 成功但存在未完全对齐的数据
+  NOT_READY,            // 部分或全部数据不足
+};
+
+// 外部不要使用detail命名空间的东西
+namespace detail
+{
+
+// 如果有差值函数(如针对ImuData_t)，则应该定义为
+// static ImuData_t Interpolate(...)
+
+template <typename T>
+concept Interpolatable = requires(const T&                a1,
+                                  const T&                a2,
+                                  const NeChannelStamp_t& t1,
+                                  const NeChannelStamp_t& t2,
+                                  const NeChannelStamp_t& target_time) {
+  { T::Interpolate(a1, a2, t1, t2, target_time) } -> std::same_as<T>;
+};
+} // namespace detail
+
+// 记录同步结果和各类同步信息
+template <typename T>
+struct NeChannelSyncSlot
+{
+
+  explicit NeChannelSyncSlot(std::shared_ptr<NeChannel<T>> channel_sptr_)
+      : channel_sptr(std::move(channel_sptr_))
+  {
+  }
+
+  using MsgType = T;
+  using RawDataType = NeChannelData_t<T>;
+
+  // 记录对应的哪个channel的数据
+  std::shared_ptr<NeChannel<T>> channel_sptr = nullptr;
+  // 记录同步结果
+  T result;
+  // 记录同步状态
+  NeChannelSyncMatchStatus_e status = NeChannelSyncMatchStatus_e::FAIL;
+  // 数据同步偏差，单位ms，本数据为基数据或数据为插值同步时严格为0
+  double time_diff_ms = 0;
+  // 是否是基准时间
+  bool is_target = false;
+  // 是否有差值函数
+  bool has_interpolation = false;
+};
+
+template <typename... MsgType>
+class NeChannelSynchronizer
+{
+private:
+  using SlotTuple_t = std::tuple<NeChannelSyncSlot<MsgType>...>;
+
+public:
+  explicit NeChannelSynchronizer(
+      std::shared_ptr<NeChannel<MsgType>>... channel_sptr)
+      : slots_(NeChannelSyncSlot<MsgType>{std::move(channel_sptr)}...)
+  {
+    // 遍历tuple，检查指针并初始化数据
+    detail::NeTraverseTuple(slots_, [&]<typename T>(const T& slot) {
+      // 检查指针是否存在
+      NV_ASSERT(slot.channel_sptr && "Channel is invaild! (nullptr)");
+
+      // 检查channel类型是否为keep on read
+      NV_ASSERT(slot.channel_sptr->GetType() == NeChannelType_e::KEEP_ON_READ &&
+                "Channel type must be KEEP_ON_READ!");
+    });
+  }
+
+  // 按照最旧的最新时间戳同步（水位线--木桶效应）
+  NeChannelSyncResult_e Sync()
+  {
+    // 本轮同步完成前保持未就绪，防止失败后读取上一轮结果
+    curr_sync_result_ = NeChannelSyncResult_e::NOT_READY;
+
+    // 遍历tuple，获取所有数据中最旧的最新时间戳
+    // A: .....|..
+    // B: .....|
+    // C: .....|....
+    // 同步目标是这条线（木桶效应）
+    curr_target_stamp_ = std::nullopt;
+    bool all_channels_ready = true;
+    detail::NeTraverseTuple(slots_, [&]<typename T>(const T& slot) {
+      if (!all_channels_ready)
+        return;
+
+      auto newest_stamp = slot.channel_sptr->GetNewestStamp();
+      if (newest_stamp)
+      {
+        if (curr_target_stamp_ == std::nullopt ||
+            *newest_stamp < *curr_target_stamp_)
+          curr_target_stamp_ = newest_stamp;
+      }
+      else
+        all_channels_ready = false;
+    });
+    if (!all_channels_ready || curr_target_stamp_ == std::nullopt)
+      return curr_sync_result_;
+
+    // 基于基准时间，遍历并进行同步处理
+    bool is_fail = false;
+    bool is_warn = false;
+    detail::NeTraverseTuple(slots_, [&]<typename Slot>(Slot& slot) {
+      if (is_fail)
+        return;
+
+      using DataType = typename Slot::MsgType;
+
+      // 就是基准本人
+      if (slot.channel_sptr->GetNewestStamp() == curr_target_stamp_)
+      {
+        // 直接获取最新数据
+        slot.channel_sptr->Receive(slot.result, true);
+        // 更新同步状态
+        slot.status = NeChannelSyncMatchStatus_e::IS_TARGET;
+        // 同步偏差
+        slot.time_diff_ms = 0;
+        // 是基准时间
+        slot.is_target = true;
+      }
+      else
+      {
+        slot.is_target = false;
+
+        // 先按照时间寻找最近的两个数据
+        NeChannelBracket_t<DataType> bracket =
+            slot.channel_sptr->FindBracket(*curr_target_stamp_);
+        // 找不到数据
+        if (bracket.status == NeChannelBracket_t<DataType>::NO_DATA)
+        {
+          is_fail = true;
+          slot.status = NeChannelSyncMatchStatus_e::FAIL;
+        }
+        // 目标时间在最晚时间之前
+        else if (bracket.status ==
+                 NeChannelBracket_t<DataType>::TARGET_BEFORE_OLDEST)
+        {
+          slot.status = NeChannelSyncMatchStatus_e::TARGET_BEFORE_OLDEST;
+          slot.result = bracket.first.data;
+          slot.time_diff_ms =
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  bracket.first.header.stamp - *curr_target_stamp_)
+                  .count();
+          is_warn = true;
+        }
+        // 目标时间在最晚时间之后
+        else if (bracket.status ==
+                 NeChannelBracket_t<DataType>::TARGET_AFTER_NEWEST)
+        {
+          slot.status = NeChannelSyncMatchStatus_e::TARGET_AFTER_NEWEST;
+          slot.result = bracket.first.data;
+          slot.time_diff_ms =
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  bracket.first.header.stamp - *curr_target_stamp_)
+                  .count();
+          is_warn = true;
+        }
+        // IN range
+        else
+        {
+          slot.status = NeChannelSyncMatchStatus_e::SUCCESS;
+          if constexpr (detail::Interpolatable<DataType>)
+          {
+            // 插值
+            slot.result = DataType::Interpolate(bracket.first.data,
+                                                bracket.second.data,
+                                                bracket.first.header.stamp,
+                                                bracket.second.header.stamp,
+                                                *curr_target_stamp_);
+            slot.time_diff_ms = 0;
+          }
+          else
+          {
+            // 使用最近邻
+            const auto first_diff =
+                *curr_target_stamp_ - bracket.first.header.stamp;
+            const auto second_diff =
+                bracket.second.header.stamp - *curr_target_stamp_;
+
+            // 距离相同时选择时间更早的数据，保证结果稳定
+            const auto& nearest =
+                first_diff <= second_diff ? bracket.first : bracket.second;
+            slot.result = nearest.data;
+            slot.time_diff_ms = std::chrono::duration<double, std::milli>(
+                                    nearest.header.stamp - *curr_target_stamp_)
+                                    .count();
+          }
+        }
+      }
+    });
+
+    if (is_fail)
+      return curr_sync_result_;
+
+    if (is_warn)
+    {
+      curr_sync_result_ = NeChannelSyncResult_e::SUCCESS_WITH_WARNING;
+      return curr_sync_result_;
+    }
+
+    curr_sync_result_ = NeChannelSyncResult_e::SUCCESS;
+    return curr_sync_result_;
+  }
+
+  // 获取当前同步时间戳
+  inline NeChannelStamp_t GetTargetStamp() const
+  {
+    NV_ASSERT(curr_sync_result_ != NeChannelSyncResult_e::NOT_READY &&
+              "Synchronizer is not ready! Call Sync() successfully first.");
+    return *curr_target_stamp_;
+  }
+
+  // 获取同步详细信息，需要提前构造slot，不直接，通常不建议使用
+  template <typename DataType>
+  NeChannelSyncMatchStatus_e
+  GetResultSlot(const std::shared_ptr<NeChannel<DataType>>& channel_sptr,
+                NeChannelSyncSlot<DataType>&                result) const
+  {
+    NV_ASSERT(curr_sync_result_ != NeChannelSyncResult_e::NOT_READY &&
+              "Synchronizer is not ready! Call Sync() successfully first.");
+
+    NeChannelSyncMatchStatus_e ms = NeChannelSyncMatchStatus_e::FAIL;
+    bool                       found = false;
+    detail::NeTraverseTuple(slots_, [&]<typename Slot>(const Slot& slot) {
+      if (ms != NeChannelSyncMatchStatus_e::FAIL)
+        return;
+      if constexpr (std::is_same_v<typename Slot::MsgType, DataType>)
+      {
+        if (slot.channel_sptr == channel_sptr)
+        {
+          ms = slot.status;
+          result = slot;
+          found = true;
+        }
+      }
+    });
+    NV_ASSERT(found && "The channel not include in the Synchronizer!");
+    return ms;
+  }
+
+  // 获取同步结果：最直接
+  template <typename DataType>
+  NeChannelSyncMatchStatus_e
+  GetResultData(const std::shared_ptr<NeChannel<DataType>>& channel_sptr,
+                DataType&                                   result) const
+  {
+    NV_ASSERT(curr_sync_result_ != NeChannelSyncResult_e::NOT_READY &&
+              "Synchronizer is not ready! Call Sync() successfully first.");
+
+    NeChannelSyncMatchStatus_e ms = NeChannelSyncMatchStatus_e::FAIL;
+    bool                       found = false;
+    detail::NeTraverseTuple(slots_, [&]<typename Slot>(const Slot& slot) {
+      if (ms != NeChannelSyncMatchStatus_e::FAIL)
+        return;
+      if constexpr (std::is_same_v<typename Slot::MsgType, DataType>)
+      {
+        if (slot.channel_sptr == channel_sptr)
+        {
+          ms = slot.status;
+          result = slot.result;
+          found = true;
+        }
+      }
+    });
+    NV_ASSERT(found && "The channel not include in the Synchronizer!");
+    return ms;
+  }
+
+private:
+  SlotTuple_t                     slots_;
+  std::optional<NeChannelStamp_t> curr_target_stamp_;
+  NeChannelSyncResult_e curr_sync_result_ = NeChannelSyncResult_e::NOT_READY;
 };
 
 } // namespace ne_vision
