@@ -12,3 +12,4 @@ scripts/__pycache__/
 .DS_Store
 .claude/
 GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+.cache/
