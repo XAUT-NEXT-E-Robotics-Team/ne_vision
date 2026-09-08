@@ -124,7 +124,7 @@ public:
 private:
   void trackAndChoose();
   void solvePnP();
-  bool matchStamp();
+  bool armors2dImuSync();
   void transformToImuFrame();
   void lmOptimize();
   void reprojectAndFillDebugInfo();
@@ -140,6 +140,9 @@ private:
   NeImuData_t  imu_data_;
 
   TrackerAim_t current_aim_;
+
+  std::shared_ptr<NeChannelSynchronizer<NeArmors2D_t, NeImuData_t>>
+      synchronizer_sptr_;
 
   struct
   {

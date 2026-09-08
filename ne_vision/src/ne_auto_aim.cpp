@@ -48,10 +48,7 @@ namespace ne_vision
 
 /* === PUBLIC === */
 
-NeAutoAim::NeAutoAim()
-{
-  result_sPtr_ = std::make_shared<NeAutoAimResult_t>();
-}
+NeAutoAim::NeAutoAim() { result_sPtr_ = std::make_shared<NeAutoAimResult_t>(); }
 
 NeAutoAim::~NeAutoAim() { Stop(); }
 
@@ -66,7 +63,7 @@ void NeAutoAim::UpdateFrame(const cv::Mat& frame, std::string camera_name)
   msg.camera_name = std::move(camera_name);
   msg.cap_stamp = std::chrono::steady_clock::now();
   msg.frame = frame;
-  NV_CHANNELS.frame_input_sPtr()->Transmit(msg);
+  NV_CHANNELS.frame_input_sPtr()->Transmit(msg, msg.cap_stamp);
 }
 
 void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
@@ -83,7 +80,7 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.acc = acc;
   msg.gyro = gyro;
   msg.quat = quat;
-  NV_CHANNELS.imu_data_sPtr()->Transmit(msg);
+  NV_CHANNELS.imu_data_sPtr()->Transmit(msg, msg.receive_stamp);
 }
 
 void NeAutoAim::UpdateRobotInfo(char our_color, double bullet_velocity)
@@ -186,7 +183,7 @@ void NeAutoAim::Stop()
 void NeAutoAim::GetResult(NeAutoAimResult_t& result) const
 {
   std::lock_guard lock(result_mtx_);
-  auto ptr = result_sPtr_;
+  auto            ptr = result_sPtr_;
   if (ptr)
     result = *ptr;
 }

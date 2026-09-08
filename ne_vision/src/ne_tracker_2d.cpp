@@ -44,6 +44,7 @@
 #include "Eigen/src/Geometry/AngleAxis.h"
 #include "Eigen/src/Geometry/Quaternion.h"
 
+#include "ne_vision/utils/ne_channel.hpp"
 #include "ne_vision/utils/ne_debug.hpp"
 #include "opencv2/opencv.hpp"
 #include "opencv2/core/eigen.hpp"
@@ -172,6 +173,11 @@ NeTracker2D::NeTracker2D(const std::string& name)
 
   // 初始化current aim 的计数器，令其大于最大值，确保第一次识别可以初始化
   current_aim_.lost_count = current_aim_.lost_count_threshold + 10;
+
+  // 初始化同步器
+  synchronizer_sptr_ =
+      std::make_shared<NeChannelSynchronizer<NeArmors2D_t, NeImuData_t>>(
+          NV_CHANNELS.armor2d_sPtr(), NV_CHANNELS.imu_data_sPtr());
 }
 
 void NeTracker2D::Tarck2D()
@@ -205,7 +211,7 @@ void NeTracker2D::Tarck2D()
   if (current_aim_.aim_armors.empty())
     goto send; // 可能全都解算失败了？
 
-  if (!matchStamp())
+  if (!armors2dImuSync())
     goto send;
 
   transformToImuFrame();
@@ -364,63 +370,52 @@ void NeTracker2D::solvePnP()
       current_aim_.aim_armors.end());
 }
 
-bool NeTracker2D::matchStamp()
+bool NeTracker2D::armors2dImuSync()
 {
-  // 与IMU的时间戳配对
+  // 这里启用船新的同步方法
 
-  std::pair<NeImuData_t, NeImuData_t> imu_data_pair;
+  auto result = synchronizer_sptr_->Sync();
 
-  if (!imu_data_c_sPtr_->FindClosestPair(
-          current_aim_.cap_stamp, imu_data_pair, [](const NeImuData_t& data) {
-            return data.receive_stamp;
-          }))
+  if (result == NeChannelSyncResult_e::NOT_READY)
   {
-    // 尝试获取一下仅有的哪一个
-    NeImuData_t imu_data_single;
-    if (!imu_data_c_sPtr_->Receive(imu_data_single))
-    {
-      // 一个都没有
-      NV_WARN("Wait for IMU data!");
-
-      return false;
-    }
-    imu_data_ = imu_data_single;
-
-    NV_WARN(
-        "Only one IMU data available, use it directly without interpolation.");
-
-    return true;
-  }
-
-  // 判断视频时间和IMU的关系，如果夹在中间，就线性插值一下，否则就用最近的那个。
-  if (current_aim_.cap_stamp < imu_data_pair.first.receive_stamp)
-  {
-    imu_data_ = imu_data_pair.first;
-    NV_WARN("Current cap_stamp is EARILER than the earliest IMU data.");
-  }
-  else if (current_aim_.cap_stamp > imu_data_pair.second.receive_stamp)
-  {
-    imu_data_ = imu_data_pair.second;
-    NV_WARN("Current cap_stamp is LATER than the latest IMU data.");
+    NV_WARN("Data not enough to process.");
+    return false;
   }
   else
   {
-    const double ratio =
-        std::chrono::duration<double>(current_aim_.cap_stamp -
-                                      imu_data_pair.first.receive_stamp)
-            .count() /
-        std::chrono::duration<double>(imu_data_pair.second.receive_stamp -
-                                      imu_data_pair.first.receive_stamp)
-            .count();
+    auto stamp = synchronizer_sptr_->GetTargetStamp();
+    auto status_imu_data = synchronizer_sptr_->GetResultData(
+        NV_CHANNELS.imu_data_sPtr(), imu_data_);
+    auto status_armors_2d = synchronizer_sptr_->GetResultData(
+        NV_CHANNELS.armor2d_sPtr(), armors_2d_);
 
-    imu_data_.acc = imu_data_pair.first.acc * (1 - ratio) +
-                    imu_data_pair.second.acc * ratio;
-    imu_data_.gyro = imu_data_pair.first.gyro * (1 - ratio) +
-                     imu_data_pair.second.gyro * ratio;
-    imu_data_.quat =
-        imu_data_pair.first.quat.slerp(ratio, imu_data_pair.second.quat);
+    // 时间越界时只能使用对应 channel 的边界数据。
+    if (status_imu_data == NeChannelSyncMatchStatus_e::TARGET_AFTER_NEWEST)
+    {
+      NV_WARN("IMU data is older than the synchronization target; using the "
+              "latest available IMU data.");
+    }
+    else if (status_imu_data ==
+             NeChannelSyncMatchStatus_e::TARGET_BEFORE_OLDEST)
+    {
+      NV_WARN("IMU data is newer than the synchronization target; using the "
+              "oldest available IMU data.");
+    }
+
+    if (status_armors_2d == NeChannelSyncMatchStatus_e::TARGET_AFTER_NEWEST)
+    {
+      NV_WARN("2D armor data is older than the synchronization target; using "
+              "the latest available 2D armor data.");
+    }
+    else if (status_armors_2d ==
+             NeChannelSyncMatchStatus_e::TARGET_BEFORE_OLDEST)
+    {
+      NV_WARN("2D armor data is newer than the synchronization target; using "
+              "the oldest available 2D armor data.");
+    }
+
+    return true;
   }
-  return true;
 }
 
 void NeTracker2D::transformToImuFrame()

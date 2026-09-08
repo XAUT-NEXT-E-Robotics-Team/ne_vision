@@ -84,7 +84,7 @@ private:
     frame_input_sPtr_ = std::make_shared<NeChannel<interfaces::NeFrameInput_t>>(
         "frame_input", NeChannelType_e::KEEP_ON_READ, 1);
     armor2d_sPtr_ = std::make_shared<NeChannel<interfaces::NeArmors2D_t>>(
-        "armor2d", NeChannelType_e::KEEP_ON_READ, 1);
+        "armor2d", NeChannelType_e::KEEP_ON_READ, 100);
     imu_data_sPtr_ = std::make_shared<NeChannel<interfaces::NeImuData_t>>(
         "imu_data", NeChannelType_e::KEEP_ON_READ, 100);
     armor3d_sPtr_ = std::make_shared<NeChannel<interfaces::NeArmors3D_t>>(
