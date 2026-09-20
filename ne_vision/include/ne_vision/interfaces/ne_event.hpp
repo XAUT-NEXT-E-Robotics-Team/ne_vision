@@ -30,22 +30,21 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-//
+// event作为任务激活的一个事件存在
 
 #pragma once
-
+#include <string>
 #include <chrono>
-#include "ne_vision/utils/ne_d_mat.hpp"
 
 namespace ne_vision
 {
 namespace interfaces
 {
 
-struct NeDebugFrame_t
+struct NeEvent_t
 {
-  std::chrono::steady_clock::time_point cap_stamp;
-  NeDMat                                frame;
+  std::string                           event;
+  std::chrono::steady_clock::time_point stamp;
 };
 
 } // namespace interfaces

@@ -51,7 +51,6 @@ cmake --install build
 | `DRIVER_ENABLE_NE_HIK_DRIVER` | 海康相机驱动（需 MVS SDK） | OFF |
 | `ADAPTER_ENABLE_NE_VISION_GD` | Godot Extension 适配器 | OFF |
 | `ADAPTER_ENABLE_NE_VISION_REALITY` | Reality 硬件适配器 | OFF |
-| `EXTENSION_ENABLE_NE_DEBUG_ZMQ` | ZeroMQ 调试扩展 | OFF |
 
 ### 运行测试
 

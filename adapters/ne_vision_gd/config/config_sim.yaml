@@ -1,3 +1,4 @@
+# 自瞄核心算法相关
 auto_aim:
   detector:
     model_path: "/Users/ziyu/codes/ne_vision/ne_vision_sim/ne-vision-sim/gdextensions/ne_vision_gd/model/0526"
@@ -61,6 +62,13 @@ auto_aim:
         nis: false # NIS统计量
         dis: false # 距离
         model_idx: false # 多假设模型索引
+
+# rerun可视化调试相关
+rerun_debug:
+  enable: true
+  type: "online" # 可选：online or file
+  path: "127.0.0.1:9876/proxy" # online模式下的rerun server地址，file模式下的rerun文件路径
+  name: "nv" # rerun可视化调试的根节点名称
 
 hardware:
   camera:

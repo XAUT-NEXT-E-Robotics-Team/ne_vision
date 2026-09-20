@@ -86,7 +86,7 @@ void NeTask::Start()
 
       std::mutex mtx;
 
-      auto next_tick = std::chrono::steady_clock::now() + time_interval_;
+      auto next_tick = std::chrono::steady_clock::now();
 
       while (!stoken.stop_requested())
       {

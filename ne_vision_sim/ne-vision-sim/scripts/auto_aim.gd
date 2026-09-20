@@ -75,7 +75,6 @@ func _process(delta: float) -> void:
 		if img and not img.is_empty():
 			nv_gd.updata_frame(img)
 			nv_gd.update_robot_info('B', 20)
-			nv_gd.get_visualize_frame(img)
 
 	# 2. 更新 FPS
 	if fps_label:

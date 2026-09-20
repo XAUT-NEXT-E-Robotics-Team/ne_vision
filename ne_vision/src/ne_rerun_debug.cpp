@@ -30,80 +30,44 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// ne_armor_2d interface for 2D armor
-// detector >=> [ne_armor_2d] >=> tracker_2d
 //
-// ATTENTION: ANY define in here should be multi-thread safe
 
-#pragma once
-
-#include <chrono>
-#include <string>
-
-#include "Eigen/Dense"
+#include "ne_vision/debug/ne_rerun_debug.hpp"
+#include "ne_vision/debug/ne_rerun_toolkit.hpp"
+#include "ne_vision/interfaces/ne_frame_input.hpp"
+#include "ne_vision/ne_channals.hpp"
 
 namespace ne_vision
 {
-namespace interfaces
+
+NeRerunDebug::NeRerunDebug(const std::string& name) : name_(name) {}
+
+void NeRerunDebug::DebugTask()
 {
-
-struct NeArmors2D_t
-{
-
-  // 注意 NeArmors2D 无法进行插值
-
-  // Timestamp of the captured frame
-  std::chrono::steady_clock::time_point cap_stamp;
-
-  // Frame height and width
-  size_t frame_height = 0;
-  size_t frame_width = 0;
-
-  struct Armor_t
+  // 画图
+  interfaces::NeFrameInput_t msg;
+  if (NV_CHANNELS.frame_input_sPtr()->Receive(msg))
   {
-    Armor_t() = default;
-    Armor_t(const std::string& armor_id_str,
-            char               armor_color,
-            double             LT_x,
-            double             LT_y,
-            double             LB_x,
-            double             LB_y,
-            double             RT_x,
-            double             RT_y,
-            double             RB_x,
-            double             RB_y)
-    {
-      armor_id = armor_id_str;
-      LT << LT_x, LT_y;
-      LB << LB_x, LB_y;
-      RT << RT_x, RT_y;
-      RB << RB_x, RB_y;
+    NV_RERUN_REC.LogCvMat(name_ + "/frame", msg.frame, msg.cap_stamp);
+  }
 
-      center = (LT + LB + RT + RB) / 4.0;
+  // 画识别器标注
+  interfaces::NeArmors2D_t armors_2d;
+  if (NV_CHANNELS.armor2d_sPtr()->Receive(armors_2d))
+  {
+    std::vector<std::vector<Eigen::Vector2d>> groups;
+    for (const auto& armor : armors_2d.armors)
+    {
+      groups.emplace_back(std::vector<Eigen::Vector2d>({armor.LB, armor.RT}));
+      groups.emplace_back(std::vector<Eigen::Vector2d>({armor.LT, armor.RB}));
     }
 
-    // Armor ID
-    // 1, 2, 3, 4, 7, outpost, base
-    std::string armor_id;
+    NV_RERUN_REC.LogLines2D(name_ + "/frame/detector_result",
+                            groups,
+                            NV_RERUN_COLOR_GREEN,
+                            2.0f,
+                            armors_2d.cap_stamp);
+  }
+}
 
-    char armor_color; // 这里是颜色 就 R B 和 N N就是无颜色
-
-    // Armor position in the image R = LEFT & T = TOP
-    // NOTE: Eigen use DEEP COPY to overload "=".
-    //       So it safer than cv::Mat
-    Eigen::Vector2d LT;
-    Eigen::Vector2d LB;
-    Eigen::Vector2d RT;
-    Eigen::Vector2d RB;
-
-    // Center will be aoto calculated by the constructor, and will not be
-    // changed after that.
-    Eigen::Vector2d center;
-  };
-
-  char                 our_color; // 这里是我们的颜色 就 R B
-  std::vector<Armor_t> armors;
-};
-
-} // namespace interfaces
 } // namespace ne_vision

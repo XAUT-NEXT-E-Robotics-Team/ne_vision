@@ -206,6 +206,8 @@ private:
 
   // 识别误差表征图像点识别的不确定性，不是重投影误差
   double detector_variance_;
+
+  std::chrono::steady_clock::time_point last_cap_stamp_;
 };
 
 } // namespace ne_vision

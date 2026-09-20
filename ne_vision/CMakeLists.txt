@@ -200,4 +200,3 @@ install_resource(
 #     message(STATUS "[ne_vision] Start building GDExtension for godot sim...")
 #     include(cmake/build_gdextension.cmake)
 # endif()
-

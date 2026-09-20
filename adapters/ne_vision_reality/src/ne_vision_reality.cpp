@@ -134,17 +134,6 @@ int main()
     serial_driver.TransmitProtocol(0x02, output_msg);
   });
 
-  // 调试回调
-  auto_aim.SetDebugCallback([&]() {
-    cv::Mat debug_frame;
-    auto_aim.GetDebugFrame(debug_frame);
-    if (!debug_frame.empty())
-    {
-      cv::imshow("Debug Frame", debug_frame);
-      cv::waitKey(1);
-    }
-  });
-
   // 启动
   hik_driver.Open();
   serial_driver.Open();

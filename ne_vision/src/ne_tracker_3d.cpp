@@ -4,9 +4,7 @@
 #include "ne_vision/utils/ne_code_profiler.hpp"
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
-#include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/ne_channals.hpp"
-#include "rerun/archetypes/scalars.hpp"
 #include <chrono>
 #include <string>
 
@@ -112,10 +110,6 @@ DO_NORMAL_TRACKING:
 
       // 如果没有识别到，上面给出的armors_3d_i_是空的，模型会自动处理
       sion.Update(armors_3d_i_);
-
-      // NeRerunDebug::GetInstance().EnableRealtimeDebug();
-
-      sion.DebugInfo(); // 输出调试信息
 
       auto state = sion.GetState();
       for (int id = 0; id < 4; ++id)

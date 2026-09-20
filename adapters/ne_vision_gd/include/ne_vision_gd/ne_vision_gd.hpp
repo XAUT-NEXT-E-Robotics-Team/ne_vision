@@ -67,7 +67,6 @@ public:
 
   void Start(const godot::String& config_path);
   void UpdataFrame(const godot::Ref<godot::Image>& gd_img);
-  void GetViualizeFrame(godot::Ref<godot::Image> gd_img);
   void UpdateImu(const godot::Vector3&    acc,
                  const godot::Vector3&    gyro,
                  const godot::Quaternion& quat,

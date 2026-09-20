@@ -47,7 +47,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 ####################
 
 # 是否开启以下这些内容的编译
-option(EXTENSION_ENABLE_NE_DEBUG_ZMQ "Enable ZeroMQ debug extension" OFF)
 
 option(DRIVER_ENABLE_NE_SERIAL_DRIVER "Enable serial driver" OFF)
 option(DRIVER_ENABLE_NE_HIK_DRIVER "Enable Hikvision camera driver (requires MVS SDK)" OFF)
@@ -61,19 +60,6 @@ option(ADAPTER_ENABLE_NE_VISION_REALITY "Enable Reality hardware adapter" OFF)
 ##############################
 message(STATUS "[ne_vision_builder] Adding ne_vision core library")
 add_subdirectory(ne_vision)
-
-####################
-# Build extensions #
-####################
-
-if(EXTENSION_ENABLE_NE_DEBUG_ZMQ)
-    message(STATUS "[ne_vision_builder] Extension [ne_debug_zmq] enabled")
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extensions/ne_debug_zmq/CMakeLists.txt")
-        add_subdirectory(extensions/ne_debug_zmq)
-    else()
-        message(WARNING "[ne_vision_builder] extensions/ne_debug_zmq directory not found, skipping...")
-    endif()
-endif()
 
 #################
 # Build drivers #

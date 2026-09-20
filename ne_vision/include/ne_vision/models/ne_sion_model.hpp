@@ -211,9 +211,6 @@ public:
   // 更新状态，输入3D装甲数据
   void Update(const interfaces::NeArmors3D_t& armors);
 
-  // 调试信息打印函数
-  void DebugInfo();
-
   NeSionState_t GetState() const
   {
     return models_.at(current_model_idx_ >= 0 ? current_model_idx_ : 0)

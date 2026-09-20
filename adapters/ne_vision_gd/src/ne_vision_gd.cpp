@@ -40,7 +40,6 @@
 #include "godot_cpp/variant/dictionary.hpp"
 #include "godot_cpp/variant/variant.hpp"
 #include "ne_vision/utils/ne_log.hpp"
-#include <opencv2/highgui.hpp>
 
 namespace ne_vision
 {
@@ -82,9 +81,6 @@ void NeVisionGd::_bind_methods()
 
   godot::ClassDB::bind_method(godot::D_METHOD("start", "config_path"),
                               &NeVisionGd::Start);
-
-  godot::ClassDB::bind_method(godot::D_METHOD("get_visualize_frame", "frame"),
-                              &NeVisionGd::GetViualizeFrame);
 
   godot::ClassDB::bind_method(
       godot::D_METHOD("update_imu", "acc", "gyro", "quat", "delay_s"),
@@ -171,28 +167,6 @@ void NeVisionGd::UpdateImu(const godot::Vector3&    acc,
   auto_aim_uPtr_->UpdateImu(Eigen::Vector3d(acc.x, acc.y, acc.z),
                             Eigen::Vector3d(gyro.x, gyro.y, gyro.z),
                             Eigen::Quaterniond(quat.w, quat.x, quat.y, quat.z));
-}
-
-// I try to put gd_img in it, but it could not work anymore.
-void NeVisionGd::GetViualizeFrame(godot::Ref<godot::Image> gd_img)
-{
-  if (!auto_aim_uPtr_)
-  {
-    NV_WARN("NeAutoAim is not initialized.");
-    return;
-  }
-
-  cv::Mat vis_frame;
-  auto_aim_uPtr_->GetDebugFrame(vis_frame);
-  if (vis_frame.empty())
-  {
-    return;
-  }
-
-  cv::imshow("Debug Frame", vis_frame);
-  if (cv::waitKey(1) == 27) // Press 'Esc' key to close the window
-  {
-  }
 }
 
 void NeVisionGd::UpdateRobotInfo(const godot::String& our_color,

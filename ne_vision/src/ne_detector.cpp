@@ -57,14 +57,15 @@ namespace ne_vision
 
 NeDetector::NeDetector(const std::string& name) : name_(name)
 {
-  input_c_sPtr_     = NV_CHANNELS.frame_input_sPtr();
+  input_c_sPtr_ = NV_CHANNELS.frame_input_sPtr();
   armors_2d_c_sPtr_ = NV_CHANNELS.armor2d_sPtr();
 
   NV_ASSERT(input_c_sPtr_ != nullptr && armors_2d_c_sPtr_ != nullptr &&
             "input_c_sPtr_ and armor_2d_c_sPtr_ cannot be nullptr");
 
   std::string model_path_str =
-      NV_PARAM["auto_aim"]["detector"]["model_path"].as<std::string>("model/0526");
+      NV_PARAM["auto_aim"]["detector"]["model_path"].as<std::string>(
+          "model/0526");
 
   labels_to_str_ = {"7", "1", "2", "3", "4", "5", "outpost", "ignore", "base"};
 
@@ -87,12 +88,14 @@ NeDetector::NeDetector(const std::string& name) : name_(name)
 #else
     std::string model_xml = model_path_str + ".xml";
     std::string model_bin = model_path_str + ".bin";
-    if (!std::filesystem::exists(model_xml) || !std::filesystem::exists(model_bin))
+    if (!std::filesystem::exists(model_xml) ||
+        !std::filesystem::exists(model_bin))
     {
       NV_ERROR("OpenVINO model not found: {}, {}", model_xml, model_bin);
       return;
     }
-    infer_uPtr_ = std::make_unique<infer::OpenvinoInfer>(model_xml, model_bin, "AUTO");
+    infer_uPtr_ =
+        std::make_unique<infer::OpenvinoInfer>(model_xml, model_bin, "AUTO");
     NV_INFO("Using OpenVINO backend for detector.");
 #endif
   }
@@ -121,20 +124,24 @@ void NeDetector::Detect()
     return;
   }
 
-  cv::Mat      frame    = frame_i_.frame;
-  const size_t width    = frame.cols;
-  const size_t height   = frame.rows;
+  cv::Mat      frame = frame_i_.frame;
+  const size_t width = frame.cols;
+  const size_t height = frame.rows;
 
   NeArmors2D_t armors_2d;
-  armors_2d.cap_stamp    = frame_i_.cap_stamp;
+  armors_2d.cap_stamp = frame_i_.cap_stamp;
   armors_2d.frame_height = height;
-  armors_2d.frame_width  = width;
+  armors_2d.frame_width = width;
 
   std::vector<cv::Mat> batch = {frame};
   infer_uPtr_->dointerfence(batch, 0.45f, 0.65f);
 
   postProcess(width, height, armors_2d);
-  armors_2d_c_sPtr_->Transmit(armors_2d);
+  armors_2d_c_sPtr_->Transmit(armors_2d, armors_2d.cap_stamp);
+
+  // 发送2D识别事件，给tracker_2d触发同步
+  NV_CHANNELS.imu_or_2D_msg_event_sPtr()->Transmit(
+      interfaces::NeEvent_t{.event = "2D", .stamp = armors_2d.cap_stamp});
 }
 
 void NeDetector::preProcess(cv::Mat& frame)
@@ -151,10 +158,10 @@ void NeDetector::postProcess(size_t        width,
 
 #ifdef NV_USE_TENSORRT
   const float scale = std::min(MODEL_ROW / height, MODEL_COL / width);
-  const float pad_x = (MODEL_COL - width  * scale) * 0.5f;
+  const float pad_x = (MODEL_COL - width * scale) * 0.5f;
   const float pad_y = (MODEL_ROW - height * scale) * 0.5f;
 #else
-  const float scale_x = static_cast<float>(width)  / MODEL_COL;
+  const float scale_x = static_cast<float>(width) / MODEL_COL;
   const float scale_y = static_cast<float>(height) / MODEL_ROW;
 #endif
 
@@ -167,8 +174,8 @@ void NeDetector::postProcess(size_t        width,
     char armor_color;
     switch (obj.color)
     {
-    case 1:  armor_color = 'R'; break;
-    case 0:  armor_color = 'B'; break;
+    case 1: armor_color = 'R'; break;
+    case 0: armor_color = 'B'; break;
     default: armor_color = 'N'; break;
     }
 
@@ -179,22 +186,29 @@ void NeDetector::postProcess(size_t        width,
 #ifdef NV_USE_TENSORRT
     for (int k = 0; k < 4; ++k)
     {
-      pts[k * 2]     = std::clamp((pts[k * 2]     - pad_x) / scale, 0.0f, (float)(width  - 1));
-      pts[k * 2 + 1] = std::clamp((pts[k * 2 + 1] - pad_y) / scale, 0.0f, (float)(height - 1));
+      pts[k * 2] =
+          std::clamp((pts[k * 2] - pad_x) / scale, 0.0f, (float)(width - 1));
+      pts[k * 2 + 1] = std::clamp(
+          (pts[k * 2 + 1] - pad_y) / scale, 0.0f, (float)(height - 1));
     }
 #else
     for (int k = 0; k < 4; ++k)
     {
-      pts[k * 2]     *= scale_x;
+      pts[k * 2] *= scale_x;
       pts[k * 2 + 1] *= scale_y;
     }
 #endif
 
-    armors_2d.armors.emplace_back(label_str, armor_color,
-                                  pts[0], pts[1],
-                                  pts[2], pts[3],
-                                  pts[6], pts[7],
-                                  pts[4], pts[5]);
+    armors_2d.armors.emplace_back(label_str,
+                                  armor_color,
+                                  pts[0],
+                                  pts[1],
+                                  pts[2],
+                                  pts[3],
+                                  pts[6],
+                                  pts[7],
+                                  pts[4],
+                                  pts[5]);
   }
 }
 

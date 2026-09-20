@@ -33,13 +33,12 @@
 // Auto-aiming module for ne_vision.
 //
 // 双模式：
-//   回调模式 - SetGimbalCallback / SetDebugCallback，由内部 NeTask 调度
-//   轮询模式 - GetResult / GetDebugFrame，任意时刻无锁读取
+//   回调模式 - SetGimbalCallback，由内部 NeTask 调度
+//   轮询模式 - GetResult，线程安全读取
 //
 // 使用示例:
 //   NeAutoAim auto_aim;
 //   auto_aim.SetGimbalCallback([](const NeAutoAimResult_t& r) { /* 发串口 */
-//   }); auto_aim.SetDebugCallback([&]() { cv::Mat f; auto_aim.GetDebugFrame(f);
 //   }); auto_aim.Start("config.yaml"); auto_aim.Spin(); // 阻塞主线程直到
 //   Stop()
 
@@ -58,7 +57,7 @@
 #include "ne_vision/tracker/ne_tracker_2d.hpp"
 #include "ne_vision/tracker/ne_tracker_3d.hpp"
 #include "ne_vision/planner/ne_mashiro_planner.hpp"
-#include "ne_vision/debug/ne_vision_visualization.hpp"
+#include "ne_vision/debug/ne_rerun_debug.hpp"
 
 namespace ne_vision
 {
@@ -97,10 +96,6 @@ public:
   // 驱动
   using GimbalCallback_t = std::function<void(const NeAutoAimResult_t&)>;
 
-  // 调试帧回调：每当 debug_frame channel 有新数据时调用，void，不传出数据
-  // 用户可在回调中调用 GetDebugFrame() 获取帧
-  using DebugCallback_t = std::function<void()>;
-
   explicit NeAutoAim();
   ~NeAutoAim();
 
@@ -129,12 +124,6 @@ public:
    */
   void SetGimbalCallback(GimbalCallback_t cb);
 
-  /**
-   * @brief 注册调试帧回调（void，无数据传出）
-   * @note 线程安全，可在任意时刻调用
-   */
-  void SetDebugCallback(DebugCallback_t cb);
-
   /* === 生命周期 === */
 
   void Start(std::string config_file_path);
@@ -152,11 +141,6 @@ public:
    */
   void GetResult(NeAutoAimResult_t& result) const;
 
-  /**
-   * @brief 获取最新调试帧（直接读取 channel，与调试回调并用安全）
-   */
-  void GetDebugFrame(cv::Mat& frame) const;
-
   /* === 主线程阻塞 === */
 
   /**
@@ -171,9 +155,6 @@ private:
   // channel，更新结果，触发回调
   void updateResult();
 
-  // debug_dispatch_uPtr_ task 体：debug_frame channel 有新数据时触发调试回调
-  void dispatchDebug();
-
   void setupTasks();
 
   /* === 内部任务 === */
@@ -184,18 +165,17 @@ private:
     std::unique_ptr<NeTask> tracker_2d_uPtr_;
     std::unique_ptr<NeTask> tracker_3d_uPtr_;
     std::unique_ptr<NeTask> mashiro_planner_uPtr_;
-    std::unique_ptr<NeTask> debug_visualization_uPtr_;
+    std::unique_ptr<NeTask> rerun_debug_uPtr_;
     std::unique_ptr<NeTask> gimbal_result_uPtr_;  // 监听 gimbal_control_ref
-    std::unique_ptr<NeTask> debug_dispatch_uPtr_; // 监听 debug_frame
   } tasks_;
 
   struct
   {
-    std::shared_ptr<NeDetector>            detector_sPtr_;
-    std::shared_ptr<NeTracker2D>           tracker_2d_sPtr_;
-    std::shared_ptr<NeTracker3D>           tracker_3d_sPtr_;
-    std::shared_ptr<NeMashiroPlanner>      mashiro_planner_sPtr_;
-    std::shared_ptr<NeVisionVisualization> debug_visualization_sPtr_;
+    std::shared_ptr<NeDetector>       detector_sPtr_;
+    std::shared_ptr<NeTracker2D>      tracker_2d_sPtr_;
+    std::shared_ptr<NeTracker3D>      tracker_3d_sPtr_;
+    std::shared_ptr<NeMashiroPlanner> mashiro_planner_sPtr_;
+    std::shared_ptr<NeRerunDebug>     rerun_debug_sPtr_;
   } task_objs_;
 
   /* === 状态 === */
@@ -207,7 +187,6 @@ private:
   mutable std::mutex                 result_mtx_;
 
   std::shared_ptr<GimbalCallback_t> gimbal_cb_sPtr_;
-  std::shared_ptr<DebugCallback_t>  debug_cb_sPtr_;
   mutable std::mutex                cb_mtx_;
 
   /* === Spin() 阻塞机制 === */

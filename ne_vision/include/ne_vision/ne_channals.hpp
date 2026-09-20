@@ -44,11 +44,11 @@
 #include "ne_vision/interfaces/ne_aim_state.hpp"
 #include "ne_vision/interfaces/ne_armors_2d.hpp"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
-#include "ne_vision/interfaces/ne_debug_frame.hpp"
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/interfaces/ne_imu_data.hpp"
 #include "ne_vision/interfaces/ne_gimbal_control_ref.hpp"
 #include "ne_vision/interfaces/ne_robot_state.hpp"
+#include "ne_vision/interfaces/ne_event.hpp"
 
 namespace ne_vision
 {
@@ -74,15 +74,15 @@ public:
   auto imu_data_sPtr() const { return imu_data_sPtr_; }
   auto armor3d_sPtr() const { return armor3d_sPtr_; }
   auto aim_state_sPtr() const { return aim_state_sPtr_; }
-  auto debug_frame_sPtr() const { return debug_frame_sPtr_; }
   auto gimbal_control_ref_sPtr() const { return gimbal_control_ref_sPtr_; }
   auto robot_state_sPtr() const { return robot_state_sPtr_; }
+  auto imu_or_2D_msg_event_sPtr() const { return imu_or_2D_msg_event_sPtr_; }
 
 private:
   NeChannels()
   {
     frame_input_sPtr_ = std::make_shared<NeChannel<interfaces::NeFrameInput_t>>(
-        "frame_input", NeChannelType_e::KEEP_ON_READ, 1);
+        "frame_input", NeChannelType_e::KEEP_ON_READ, 100);
     armor2d_sPtr_ = std::make_shared<NeChannel<interfaces::NeArmors2D_t>>(
         "armor2d", NeChannelType_e::KEEP_ON_READ, 100);
     imu_data_sPtr_ = std::make_shared<NeChannel<interfaces::NeImuData_t>>(
@@ -96,9 +96,9 @@ private:
             "gimbal_control_ref", NeChannelType_e::KEEP_ON_READ, 1);
     robot_state_sPtr_ = std::make_shared<NeChannel<interfaces::NeRobotState_t>>(
         "robot_state", NeChannelType_e::KEEP_ON_READ, 1);
-
-    debug_frame_sPtr_ = std::make_shared<NeChannel<interfaces::NeDebugFrame_t>>(
-        "debug_frame", NeChannelType_e::KEEP_ON_READ, 1);
+    imu_or_2D_msg_event_sPtr_ =
+        std::make_shared<NeChannel<interfaces::NeEvent_t>>(
+            "imu_or_2D_msg_event", NeChannelType_e::KEEP_ON_READ, 1);
   }
 
   ~NeChannels() = default;
@@ -108,10 +108,10 @@ private:
   std::shared_ptr<NeChannel<interfaces::NeImuData_t>>    imu_data_sPtr_;
   std::shared_ptr<NeChannel<interfaces::NeArmors3D_t>>   armor3d_sPtr_;
   std::shared_ptr<NeChannel<interfaces::NeAimState_t>>   aim_state_sPtr_;
-  std::shared_ptr<NeChannel<interfaces::NeDebugFrame_t>> debug_frame_sPtr_;
   std::shared_ptr<NeChannel<interfaces::NeGimbalControlRef_t>>
       gimbal_control_ref_sPtr_;
   std::shared_ptr<NeChannel<interfaces::NeRobotState_t>> robot_state_sPtr_;
+  std::shared_ptr<NeChannel<interfaces::NeEvent_t>> imu_or_2D_msg_event_sPtr_;
 };
 
 #define NV_CHANNELS NeChannels::GetInstance()

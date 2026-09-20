@@ -69,12 +69,23 @@ public:
     dist_coeffs = param_.dist_coeffs_eigen;
   }
 
-  inline void GetCameraToGimbal(NeTranslation& T_G_C) { T_G_C = param_.T_G_C; }
-
   inline void GetCameraMatrixCV(cv::Mat& camera_matrix)
   {
     camera_matrix = param_.camera_matrix_cv;
   }
+
+  inline void GetDistCoeffsCV(cv::Mat& dist_coeffs)
+  {
+    dist_coeffs = param_.dist_coeffs_cv;
+  }
+
+  inline void GetDistCoeffsVector(std::vector<double>& dist_coeffs)
+  {
+    dist_coeffs = std::vector<double>(param_.dist_coeffs_eigen.data(),
+                                      param_.dist_coeffs_eigen.data() + 5);
+  }
+
+  inline void GetCameraToGimbal(NeTranslation& T_G_C) { T_G_C = param_.T_G_C; }
 
   // 把一个IMU系下的点投影到相机
   cv::Point2d ProjectToImagePlane(const interfaces::NeImuData_t& imu_data,

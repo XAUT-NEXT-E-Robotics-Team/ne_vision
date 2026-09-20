@@ -53,7 +53,6 @@
 #include "ne_vision/utils/ne_param.hpp"
 #include "ne_vision/utils/ne_math.hpp"
 #include "ne_vision/utils/ne_code_profiler.hpp"
-#include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/ne_channals.hpp"
 
 #define BEBUG_LOG
@@ -193,32 +192,34 @@ void NeTracker2D::Tarck2D()
   // 清一下
   armors_3d_.armors.clear();
 
+  // 数据同步
+  // 注意：只要相机在拍摄，无论是否有识别到装甲板，这里都是应该有2D数据的
+  //      只要电控在发，串口正常，这里都应该有IMU数据的
+  //      因此，在正常运行情况，可以按照新数据有无装甲板来跟踪
+  if (!armors2dImuSync()) // 同步失败或无新数据
+    return;               // 此时是无效数据，不应该向下发送
+
+  // 跟踪和目标选择，结果存储到current_aim_中
   trackAndChoose();
 
-  if (!current_aim_.IsDetected())
-  {
-    // 虽然之前应该是能确保清零了，这一再做一下防呆
-    // 清零代表没识别到，用来给后续做处理的
-    current_aim_.aim_armors.clear();
-    goto send; // 只要本次没识别到，就退出了
-  }
-
   // 能到这里，armors_2d不可能是空的
-  solvePnP();
-
   current_aim_.cap_stamp = armors_2d_.cap_stamp;
+
+  // 即使目标存在，也有可能是间歇性的没有识别到
+  // 如果没有识别到，就不应该继续解算了。
+  if (!current_aim_.IsDetected())
+    goto send;
+
+  solvePnP();
 
   if (current_aim_.aim_armors.empty())
     goto send; // 可能全都解算失败了？
-
-  if (!armors2dImuSync())
-    goto send;
 
   transformToImuFrame();
   lmOptimize();
 
   // ONLY FOR DEBUG
-  reprojectAndFillDebugInfo();
+  // reprojectAndFillDebugInfo();
 
   // 循环填数据
   for (auto& each : current_aim_.aim_armors)
@@ -234,18 +235,13 @@ void NeTracker2D::Tarck2D()
   }
   armors_3d_.aim_id = current_aim_.aim_id;
 
-  // 无论是谁不对，都不能阻止发数据，因为会影响可视化配对，以及后续各类时间戳
+// 只要有有效数据进来了，就不能不发布，不发布会影响到后续跟踪器进行跟踪
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
 
   // 直接把这个时间点的IMU数据发过去，用于时间链传播
   armors_3d_.imu_data = imu_data_;
-  armors_3d_c_sPtr_->Transmit(armors_3d_);
-
-  // std::chrono::steady_clock::time_point end =
-  // std::chrono::steady_clock::now(); double duration_ms =
-  //     std::chrono::duration<double, std::milli>(end - now).count();
-  // NV_DEBUG("Tracker 2D took {:.2f} ms", duration_ms);
+  armors_3d_c_sPtr_->Transmit(armors_3d_, armors_3d_.cap_stamp);
 }
 
 void NeTracker2D::trackAndChoose()
@@ -383,11 +379,15 @@ bool NeTracker2D::armors2dImuSync()
   }
   else
   {
-    auto stamp = synchronizer_sptr_->GetTargetStamp();
     auto status_imu_data = synchronizer_sptr_->GetResultData(
         NV_CHANNELS.imu_data_sPtr(), imu_data_);
     auto status_armors_2d = synchronizer_sptr_->GetResultData(
         NV_CHANNELS.armor2d_sPtr(), armors_2d_);
+
+    // 去重操作
+    // 同步过程中有可能具有两个imu数据都较为靠近一个cap，因此会出现cap_stamp不变的情况，这种情况不应该继续处理。
+    if (armors_2d_.cap_stamp <= last_cap_stamp_)
+      return false;
 
     // 时间越界时只能使用对应 channel 的边界数据。
     if (status_imu_data == NeChannelSyncMatchStatus_e::TARGET_AFTER_NEWEST)
@@ -413,6 +413,8 @@ bool NeTracker2D::armors2dImuSync()
       NV_WARN("2D armor data is newer than the synchronization target; using "
               "the oldest available 2D armor data.");
     }
+
+    last_cap_stamp_ = armors_2d_.cap_stamp;
 
     return true;
   }

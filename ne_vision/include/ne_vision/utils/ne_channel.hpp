@@ -548,11 +548,11 @@ public:
     // 同步目标是这条线（木桶效应）
     curr_target_stamp_ = std::nullopt;
     bool all_channels_ready = true;
-    detail::NeTraverseTuple(slots_, [&]<typename T>(const T& slot) {
+    detail::NeTraverseTuple(slots_, [&]<typename Slot>(Slot& slot) {
       if (!all_channels_ready)
         return;
 
-      auto newest_stamp = slot.channel_sptr->GetNewestStamp();
+      const auto newest_stamp = slot.channel_sptr->GetNewestStamp();
       if (newest_stamp)
       {
         if (curr_target_stamp_ == std::nullopt ||
@@ -565,6 +565,7 @@ public:
     if (!all_channels_ready || curr_target_stamp_ == std::nullopt)
       return curr_sync_result_;
 
+    // 目标时间已固定；后续通道更新不会改变本轮同步目标。
     // 基于基准时间，遍历并进行同步处理
     bool is_fail = false;
     bool is_warn = false;
@@ -573,12 +574,20 @@ public:
         return;
 
       using DataType = typename Slot::MsgType;
+      typename Slot::RawDataType newest_raw;
+      slot.is_target = false;
+      if (!slot.channel_sptr->ReceiveRaw(newest_raw, true))
+      {
+        is_fail = true;
+        slot.status = NeChannelSyncMatchStatus_e::FAIL;
+        return;
+      }
 
       // 就是基准本人
-      if (slot.channel_sptr->GetNewestStamp() == curr_target_stamp_)
+      if (newest_raw.header.stamp == *curr_target_stamp_)
       {
-        // 直接获取最新数据
-        slot.channel_sptr->Receive(slot.result, true);
+        // 时间戳和数据来自同一次读取，无需再次接收。
+        slot.result = std::move(newest_raw.data);
         // 更新同步状态
         slot.status = NeChannelSyncMatchStatus_e::IS_TARGET;
         // 同步偏差

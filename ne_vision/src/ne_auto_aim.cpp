@@ -36,12 +36,13 @@
 #include <mutex>
 
 #include "ne_vision/ne_auto_aim.hpp"
-#include "ne_vision/interfaces/ne_debug_frame.hpp"
+#include "ne_vision/debug/ne_rerun_toolkit.hpp"
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/interfaces/ne_gimbal_control_ref.hpp"
 #include "ne_vision/ne_channals.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/utils/ne_param.hpp"
+#include "rerun/rerun_sdk_export.hpp"
 
 namespace ne_vision
 {
@@ -81,6 +82,10 @@ void NeAutoAim::UpdateImu(const Eigen::Vector3d&    acc,
   msg.gyro = gyro;
   msg.quat = quat;
   NV_CHANNELS.imu_data_sPtr()->Transmit(msg, msg.receive_stamp);
+
+  // 激活事件，该事件用于触发2D tracker任务
+  NV_CHANNELS.imu_or_2D_msg_event_sPtr()->Transmit(
+      interfaces::NeEvent_t{.event = "IMU", .stamp = msg.receive_stamp});
 }
 
 void NeAutoAim::UpdateRobotInfo(char our_color, double bullet_velocity)
@@ -116,12 +121,6 @@ void NeAutoAim::SetGimbalCallback(GimbalCallback_t cb)
   gimbal_cb_sPtr_ = std::make_shared<GimbalCallback_t>(std::move(cb));
 }
 
-void NeAutoAim::SetDebugCallback(DebugCallback_t cb)
-{
-  std::lock_guard lock(cb_mtx_);
-  debug_cb_sPtr_ = std::make_shared<DebugCallback_t>(std::move(cb));
-}
-
 /* === 生命周期 === */
 
 void NeAutoAim::Start(std::string config_file_path)
@@ -144,13 +143,28 @@ void NeAutoAim::Start(std::string config_file_path)
 
   setupTasks();
 
+  // 是否启用debug，如果启用则开启调试线程
+  if (NV_PARAM["rerun_debug"]["enable"].as<bool>())
+  {
+    std::string type = NV_PARAM["rerun_debug"]["type"].as<std::string>();
+    std::string path = NV_PARAM["rerun_debug"]["path"].as<std::string>();
+    std::string name = NV_PARAM["rerun_debug"]["name"].as<std::string>();
+
+    if (type == "online")
+      NV_RERUN_REC.Enable(RecType_e::ONLINE, path, name);
+    else if (type == "file")
+      NV_RERUN_REC.Enable(RecType_e::FILE, path, name);
+    else
+      NV_WARN("Unknown rerun_debug type: {}, defaulting to online", type);
+
+    tasks_.rerun_debug_uPtr_->Start();
+  }
+
   tasks_.detector_uPtr_->Start();
   tasks_.tracker_2d_uPtr_->Start();
   tasks_.tracker_3d_uPtr_->Start();
   tasks_.mashiro_planner_uPtr_->Start();
-  tasks_.debug_visualization_uPtr_->Start();
   tasks_.gimbal_result_uPtr_->Start();
-  tasks_.debug_dispatch_uPtr_->Start();
 
   is_running_.store(true, std::memory_order_release);
   NV_INFO("NeAutoAim started");
@@ -170,9 +184,8 @@ void NeAutoAim::Stop()
   stopTask(tasks_.tracker_2d_uPtr_);
   stopTask(tasks_.tracker_3d_uPtr_);
   stopTask(tasks_.mashiro_planner_uPtr_);
-  stopTask(tasks_.debug_visualization_uPtr_);
+  stopTask(tasks_.rerun_debug_uPtr_);
   stopTask(tasks_.gimbal_result_uPtr_);
-  stopTask(tasks_.debug_dispatch_uPtr_);
 
   stop_cv_.notify_all();
   NV_INFO("NeAutoAim stopped");
@@ -186,22 +199,6 @@ void NeAutoAim::GetResult(NeAutoAimResult_t& result) const
   auto            ptr = result_sPtr_;
   if (ptr)
     result = *ptr;
-}
-
-void NeAutoAim::GetDebugFrame(cv::Mat& frame) const
-{
-  if (!is_running_.load(std::memory_order_acquire))
-  {
-    frame = cv::Mat();
-    return;
-  }
-  interfaces::NeDebugFrame_t msg;
-  if (!NV_CHANNELS.debug_frame_sPtr()->Receive(msg, true))
-  {
-    frame = cv::Mat();
-    return;
-  }
-  frame = msg.frame.Empty() ? cv::Mat() : static_cast<cv::Mat>(msg.frame);
 }
 
 /* === 主线程阻塞 === */
@@ -250,19 +247,6 @@ void NeAutoAim::updateResult()
     (*cb)(*new_result);
 }
 
-void NeAutoAim::dispatchDebug()
-{
-  // debug_frame channel 有新帧时唤醒（由 NeTask 调度）
-  // 调试帧本身可通过 GetDebugFrame() 读取，回调只做通知
-  std::shared_ptr<DebugCallback_t> cb;
-  {
-    std::lock_guard lock(cb_mtx_);
-    cb = debug_cb_sPtr_;
-  }
-  if (cb && *cb)
-    (*cb)();
-}
-
 void NeAutoAim::setupTasks()
 {
   task_objs_.detector_sPtr_ = std::make_shared<NeDetector>("detector");
@@ -277,7 +261,7 @@ void NeAutoAim::setupTasks()
   tasks_.tracker_2d_uPtr_ =
       std::make_unique<NeTask>(task_objs_.tracker_2d_sPtr_->GetName(),
                                NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               NV_CHANNELS.armor2d_sPtr(),
+                               NV_CHANNELS.imu_or_2D_msg_event_sPtr(),
                                task_objs_.tracker_2d_sPtr_.get(),
                                &NeTracker2D::Tarck2D);
 
@@ -298,18 +282,13 @@ void NeAutoAim::setupTasks()
                                task_objs_.mashiro_planner_sPtr_.get(),
                                &NeMashiroPlanner::Plan);
 
-  task_objs_.debug_visualization_sPtr_ =
-      std::make_shared<NeVisionVisualization>("debug_visualization");
-  task_objs_.debug_visualization_sPtr_->AddArmors2DData();
-  task_objs_.debug_visualization_sPtr_->AddArmors3DData();
-  task_objs_.debug_visualization_sPtr_->AddAimTrajData();
-  task_objs_.debug_visualization_sPtr_->AddGimbalControlRefData();
-  tasks_.debug_visualization_uPtr_ =
-      std::make_unique<NeTask>(task_objs_.debug_visualization_sPtr_->GetName(),
-                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               NV_CHANNELS.frame_input_sPtr(),
-                               task_objs_.debug_visualization_sPtr_.get(),
-                               &NeVisionVisualization::Draw);
+  task_objs_.rerun_debug_sPtr_ = std::make_shared<NeRerunDebug>("rerun_debug");
+  tasks_.rerun_debug_uPtr_ =
+      std::make_unique<NeTask>(task_objs_.rerun_debug_sPtr_->GetName(),
+                               NeTaskType_e::WAIT_FOR_INTERVAL,
+                               50ms,
+                               task_objs_.rerun_debug_sPtr_.get(),
+                               &NeRerunDebug::DebugTask);
 
   // gimbal_result: 监听 gimbal_control_ref channel，驱动结果更新与云台回调
   tasks_.gimbal_result_uPtr_ =
@@ -318,14 +297,6 @@ void NeAutoAim::setupTasks()
                                NV_CHANNELS.gimbal_control_ref_sPtr(),
                                this,
                                &NeAutoAim::updateResult);
-
-  // debug_dispatch: 监听 debug_frame channel，驱动调试回调
-  tasks_.debug_dispatch_uPtr_ =
-      std::make_unique<NeTask>("debug_dispatch",
-                               NeTaskType_e::WAIT_FOR_CHANNEL_DATA,
-                               NV_CHANNELS.debug_frame_sPtr(),
-                               this,
-                               &NeAutoAim::dispatchDebug);
 }
 
 } // namespace ne_vision

@@ -40,8 +40,6 @@
 
 #include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
 
-#include "ne_vision/debug/ne_vision_visualization.hpp"
-#include "ne_vision/utils/ne_rerun_debug.hpp"
 #include "ne_vision/ne_channals.hpp"
 #include <Eigen/src/Core/Matrix.h>
 #include <vector>
@@ -179,41 +177,6 @@ void NeSionModel::Update(const interfaces::NeArmors3D_t& armors)
     // NV_WARN("Model {} is diverged! Reinitializing...", current_model_idx_);
     initializeModel(armors, models_);
   }
-}
-
-void NeSionModel::DebugInfo()
-{
-  std::string prefix = GetName() + "/";
-  int         log_idx = current_model_idx_ >= 0 ? current_model_idx_ : 0;
-  const auto& model = models_.at(log_idx);
-  const auto& x = model.esikf_data.x;
-
-  if (params_.debug.yaw)
-    NV_REC_LOG(prefix + "yaw", rerun::Scalars(x.yaw));
-
-  if (params_.debug.omega)
-    NV_REC_LOG(prefix + "omega", rerun::Scalars(x.omega));
-
-  if (params_.debug.R)
-  {
-    NV_REC_LOG(prefix + "R1", rerun::Scalars(x.R1));
-    NV_REC_LOG(prefix + "R2", rerun::Scalars(x.R2));
-  }
-
-  if (params_.debug.Q_var)
-  {
-    NV_REC_LOG(prefix + "var_a", rerun::Scalars(model.current_var_a));
-    NV_REC_LOG(prefix + "var_beta", rerun::Scalars(model.current_var_beta));
-  }
-
-  if (params_.debug.nis)
-    NV_REC_LOG(prefix + "nis", rerun::Scalars(model.last_nis));
-
-  if (params_.debug.dis)
-    NV_REC_LOG(prefix + "dis", rerun::Scalars(model.last_dis));
-
-  if (params_.debug.model_idx)
-    NV_REC_LOG(prefix + "model_idx", rerun::Scalars(current_model_idx_));
 }
 
 /* === 统合函数区 === */
