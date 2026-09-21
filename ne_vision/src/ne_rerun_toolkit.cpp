@@ -190,11 +190,11 @@ void NeRerunToolkit::LogCvMat(const std::string&                    path,
 }
 
 void NeRerunToolkit::LogLines2D(
-    const std::string&                           path,
+    const std::string&                               path,
     const std::vector<std::vector<Eigen::Vector2d>>& groups,
-    rerun::Color                                 color,
-    float                                        line_width,
-    std::chrono::steady_clock::time_point         stamp)
+    rerun::Color                                     color,
+    float                                            line_width,
+    std::chrono::steady_clock::time_point            stamp)
 {
   if (!IsEnabled())
     return;
@@ -224,7 +224,8 @@ void NeRerunToolkit::LogLines2D(
 
   if (!std::isfinite(line_width) || line_width <= 0.0f)
   {
-    NV_WARN("Invalid line width at {}: expected a finite positive value.", path);
+    NV_WARN("Invalid line width at {}: expected a finite positive value.",
+            path);
     return;
   }
 
@@ -232,6 +233,53 @@ void NeRerunToolkit::LogLines2D(
                  rerun::LineStrips2D(std::move(strips))
                      .with_colors({color})
                      .with_radii({line_width * 0.5f}));
+}
+
+void NeRerunToolkit::LogBoxes3D(const std::string&                    path,
+                                const std::vector<NeRerunBox>&        boxes,
+                                std::chrono::steady_clock::time_point stamp)
+{
+  if (!IsEnabled())
+    return;
+
+  // 初始化必要的vector并设置大小
+  std::vector<rerun::components::HalfSize3D>    half_sizes;
+  std::vector<rerun::components::Translation3D> centers;
+  std::vector<rerun::components::RotationQuat>  rotations;
+  std::vector<rerun::Color>                     colors;
+  half_sizes.reserve(boxes.size());
+  centers.reserve(boxes.size());
+  rotations.reserve(boxes.size());
+  colors.reserve(boxes.size());
+
+  for (const auto& box : boxes)
+  {
+    // 读取结构体并将其中的数据放入
+
+    const Eigen::Vector3d size(box.length, box.width, box.height);
+    if (!ValidGeometry(path, box.position, box.rotation, size))
+      continue;
+
+    half_sizes.emplace_back(ToRerun(size * 0.5));
+    centers.emplace_back(ToRerun(box.position));
+    rotations.emplace_back(ToRerun(box.rotation));
+    colors.push_back(box.color);
+  }
+
+  // 设置时间
+  rec_uptr_->set_time_duration(timeline_name_, stamp.time_since_epoch());
+  if (half_sizes.empty())
+  {
+    rec_uptr_->log(path, rerun::Clear::FLAT);
+    return;
+  }
+
+  // log
+  rec_uptr_->log(path,
+                 rerun::Boxes3D::from_half_sizes(std::move(half_sizes))
+                     .with_centers(centers)
+                     .with_quaternions(rotations)
+                     .with_colors(colors));
 }
 
 void NeRerunToolkit::LogCvMatUndistorted(

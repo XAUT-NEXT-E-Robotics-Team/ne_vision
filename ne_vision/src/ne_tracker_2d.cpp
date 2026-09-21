@@ -45,8 +45,6 @@
 #include "Eigen/src/Geometry/Quaternion.h"
 
 #include "ne_vision/utils/ne_channel.hpp"
-#include "ne_vision/utils/ne_debug.hpp"
-#include "opencv2/opencv.hpp"
 #include "opencv2/core/eigen.hpp"
 
 #include "ne_vision/utils/ne_log.hpp"
@@ -225,7 +223,7 @@ void NeTracker2D::Tarck2D()
   for (auto& each : current_aim_.aim_armors)
   {
     NeArmors3D_t::Armor3D_t armor_3d;
-    armor_3d.debug = each.debug_info;
+    // armor_3d.debug = each.debug_info;
     armor_3d.q = each.imu_to_armor.q;
     armor_3d.t = each.imu_to_armor.t;
     // 坐标系变换
@@ -238,9 +236,15 @@ void NeTracker2D::Tarck2D()
 // 只要有有效数据进来了，就不能不发布，不发布会影响到后续跟踪器进行跟踪
 send:
   armors_3d_.cap_stamp = armors_2d_.cap_stamp;
+  if (armors_3d_.armors.empty())
+    armors_3d_.aim_id = "NULL";
 
   // 直接把这个时间点的IMU数据发过去，用于时间链传播
+  // 注意：无论是否有有识别到，这个都是有效的
   armors_3d_.imu_data = imu_data_;
+  armors_3d_.gimbal_to_camera.q() = gimbal_to_camera_.q;
+  armors_3d_.gimbal_to_camera.t() = gimbal_to_camera_.t;
+
   armors_3d_c_sPtr_->Transmit(armors_3d_, armors_3d_.cap_stamp);
 }
 
@@ -249,8 +253,8 @@ void NeTracker2D::trackAndChoose()
   // 跟踪和选板。
   // 1.
   // 跟踪当前目标，无数据一定时间后认为丢失。用来防止出现一两次误识别就导致目标变化这种抽象的事情。
-  // 2. 选板，优先级：当前目标 > 也许吧 >
-  //    2D上最近的（巅峰陈雪送的吐槽给你解决了哦）
+  // 2.
+  // 选板，优先级：当前目标 > ABAB > 2D上最近的（巅峰陈雪送的吐槽给你解决了哦）
 
   // 无论如何先清零
   current_aim_.aim_armors.clear();
@@ -307,7 +311,7 @@ void NeTracker2D::trackAndChoose()
       }
       avg_center /= (double)t_it->second.size();
 
-      const double avg_distance = avg_center.norm();
+      const double avg_distance = (avg_center - center).norm();
       if (avg_distance < avg_distance_min)
       {
         avg_distance_min = avg_distance;
@@ -432,54 +436,6 @@ void NeTracker2D::transformToImuFrame()
   }
 }
 
-void NeTracker2D::reprojectAndFillDebugInfo()
-{
-  for (auto& each : current_aim_.aim_armors)
-  {
-    // // 相机到IMU的旋转
-    // each.debug_info.camera_to_imu.q =
-    //     gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
-
-    // // 相机到IMU的平移
-    // each.debug_info.camera_to_imu.t =
-    //     gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
-
-    Eigen::Quaterniond q_c_i =
-        gimbal_to_camera_.q.conjugate() * imu_data_.quat.conjugate();
-
-    // 计算相机到装甲板的旋转
-    Eigen::Quaterniond q_c_a = q_c_i * each.imu_to_armor.q;
-
-    // 计算相机到装甲板平移
-    auto t_c_a = q_c_i * each.imu_to_armor.t -
-                 gimbal_to_camera_.q.conjugate() * gimbal_to_camera_.t;
-
-    Eigen::Vector3d P_LT =
-        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[0] + t_c_a;
-    Eigen::Vector3d P_LB =
-        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[1] + t_c_a;
-    Eigen::Vector3d P_RB =
-        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[2] + t_c_a;
-    Eigen::Vector3d P_RT =
-        q_c_a * pnp_param_.GetObjectPointsEigen(current_aim_.aim_id)[3] + t_c_a;
-
-    P_LT = (pnp_param_.camera_matrix_eigen * P_LT) / P_LT.z();
-    P_LB = (pnp_param_.camera_matrix_eigen * P_LB) / P_LB.z();
-    P_RB = (pnp_param_.camera_matrix_eigen * P_RB) / P_RB.z();
-    P_RT = (pnp_param_.camera_matrix_eigen * P_RT) / P_RT.z();
-
-    cv::Point2d P_LT_2d(P_LT.x(), P_LT.y());
-    cv::Point2d P_LB_2d(P_LB.x(), P_LB.y());
-    cv::Point2d P_RB_2d(P_RB.x(), P_RB.y());
-    cv::Point2d P_RT_2d(P_RT.x(), P_RT.y());
-
-    each.debug_info.re_projected_pts.clear();
-    each.debug_info.re_projected_pts.push_back(P_LT_2d);
-    each.debug_info.re_projected_pts.push_back(P_LB_2d);
-    each.debug_info.re_projected_pts.push_back(P_RB_2d);
-    each.debug_info.re_projected_pts.push_back(P_RT_2d);
-  }
-}
 // 实现原理见docs：pnp_optimize_and_cov.md
 // 这个函数是自己写的基础运算，发现贼慢，然后丢进去AI优化
 // 所以很多东西我也不知道为啥这么写的，别问我啊。
@@ -777,46 +733,6 @@ void NeTracker2D::lmOptimize()
     }
 
     // TODO: 保护内容
-    // if (Cov_4x4.hasNaN() || Cov_4x4(2, 2) > 1.0 || Cov_4x4(3, 3) > 1.0)
-    // {
-    //   NV_WARN("LM Covariance Exploded! Fallback to default large
-    //   Covariance."); Cov_4x4.setIdentity(); Cov_4x4(0, 0) = 0.05; Cov_4x4(1,
-    //   1) = 0.05; Cov_4x4(2, 2) = 0.2; Cov_4x4(3, 3) = 0.5; // Yaw
-    //   角给极度不信任状态
-    // }
-    // else
-    // {
-    //   Eigen::Matrix<double, 4, 4> Cov_base =
-    //       Eigen::Matrix<double, 4, 4>::Zero();
-    //   Cov_base(0, 0) = 1e-4; // X轴底盘/云台机械底线震动噪声
-    //   Cov_base(1, 1) = 1e-4; // Y轴
-    //   Cov_base(2, 2) = 4e-4; // Z轴 (深度先天误差通常较大)
-    //   Cov_base(3, 3) = 1e-3; // Yaw角底线噪声
-
-    //   Cov_4x4 += Cov_base;
-    // }
-
-    each.imu_to_armor.cov = Cov_4x4;
-    // double yaw_var = Cov_4x4(3, 3);
-    // double yaw_error_max = x(5) + std::sqrt(yaw_var) * 3; // 3-sigma原则
-    // double yaw_error_min = x(5) - std::sqrt(yaw_var) * 3;
-    // nv_rec_g().log("tracker_2d_yaw_error_bound_max",
-    //                rerun::Scalars(yaw_error_max));
-    // nv_rec_g().log("tracker_2d_yaw_error_bound_min",
-    //                rerun::Scalars(yaw_error_min));
-
-    // double xxx = x(0);
-    // double xxx_var = Cov_4x4(0, 0);
-    // double xxx_error_max = xxx + std::sqrt(xxx_var) * 3;
-    // double xxx_error_min = xxx - std::sqrt(xxx_var) * 3;
-    // nv_rec_g().log("x_error_bound_max", rerun::Scalars(xxx_error_max));
-    // nv_rec_g().log("x_error_bound_min", rerun::Scalars(xxx_error_min));
-    // nv_rec_g().log("optimized_x", rerun::Scalars(xxx));
   }
-
-  // auto ms =
-  //     NV_PROFILE_INSTANCE("Tracker2D LM Optimize")->GetResult().GetCurrentS()
-  //     * 1000.0;
-  // NV_DEBUG("Tracker2D LM Optimize took {:.2f} ms on average", ms);
 }
 } // namespace ne_vision

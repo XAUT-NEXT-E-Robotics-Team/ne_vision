@@ -36,7 +36,6 @@
 
 #pragma once
 
-#include "gtest/gtest.h"
 #include <chrono>
 #include <functional>
 #include <string>
@@ -106,7 +105,6 @@ public:
   }
 
   void Start();
-  void WakeUp();
   void Stop();
 
   inline std::string GetName() const { return name_; }
@@ -126,8 +124,7 @@ private:
     name_ = name;
     task_type_ = type;
 
-    cv_pair_sPtr_ =
-        std::make_shared<std::pair<std::condition_variable, bool>>();
+    cv_pair_sPtr_ = std::make_shared<CvBracket_t>();
     cv_pair_sPtr_->second = false;
 
     // If the type is equal to WAIT_FOR_CHANNEL_DATA

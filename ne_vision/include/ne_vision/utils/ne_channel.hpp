@@ -37,6 +37,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <stop_token>
 #include <memory>
 #include <deque>
 #include <mutex>
@@ -56,7 +57,7 @@ namespace ne_vision
 
 /// @brief A pair containing a condition variable and a boolean notification
 /// flag.
-using CvBracket_t = std::pair<std::condition_variable, bool>;
+using CvBracket_t = std::pair<std::condition_variable_any, bool>;
 /// @brief A shared pointer to a CvBracket_t, used to manage CVs for waiting
 /// tasks.
 using CvPairSPtr_t = std::shared_ptr<CvBracket_t>;
@@ -136,11 +137,10 @@ public:
   {
     std::unique_lock<std::mutex> lock(mtx__);
 
-    // Wait until the notification status is true, which means new data has been
-    // transmitted, or a stop is requested.
-    cv_pair_sPtr->first.wait(lock, [&cv_pair_sPtr, &stoken] {
-      return cv_pair_sPtr->second || stoken.stop_requested();
-    });
+    // stoken
+    // 等待函数，等待直到stop_token触发（即线程被请求停止）或者条件变量被通知。
+    cv_pair_sPtr->first.wait(
+        lock, stoken, [&cv_pair_sPtr] { return cv_pair_sPtr->second; });
 
     // Reset the notification status to false after being notified.
     cv_pair_sPtr->second = false;

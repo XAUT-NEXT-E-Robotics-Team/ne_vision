@@ -37,7 +37,7 @@
 
 #include <chrono>
 #include <vector>
-
+#include "ne_vision/utils/ne_translation.hpp"
 #include "Eigen/Dense"
 
 #include "ne_vision/utils/ne_math.hpp"
@@ -54,10 +54,12 @@ struct NeArmors3D_t
   // stamp after matching with IMU data.
   std::chrono::steady_clock::time_point cap_stamp;
 
+  // 如果没有识别到这里给NULL
   std::string aim_id;
 
-  NeImuData_t imu_data; // 观测时刻最近的IMU数据，主要用来后续预测补偿
-
+  // 无论是否识别到这里都有效
+  NeImuData_t   imu_data;         // 观测时刻最近的IMU数据，主要用来后续预测补偿
+  NeTranslation gimbal_to_camera; // 云台到相机的位姿
   struct Armor3D_t
   {
     // Pose from IMU
@@ -65,22 +67,9 @@ struct NeArmors3D_t
     Eigen::Quaterniond q;
     double             yaw;
     Eigen::Matrix4d    cov;
-
-    // Use to visualization.
-    struct Debug_t
-    {
-      // LT, LB, RB, RT
-      std::vector<cv::Point2d> re_projected_pts;
-
-      // struct
-      // {
-      //   Eigen::Vector3d    t;
-      //   Eigen::Quaterniond q;
-      // } camera_to_imu;
-
-    } debug;
   };
 
+  // 请优先根据这个数组大小是否为空判断是否识别到
   std::vector<Armor3D_t> armors;
 };
 

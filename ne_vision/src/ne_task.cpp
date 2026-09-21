@@ -100,7 +100,7 @@ void NeTask::Start()
 
         std::unique_lock<std::mutex> lock(mtx);
         cv_pair_sPtr_->first.wait_until(
-            lock, next_tick, [&stoken] { return stoken.stop_requested(); });
+            lock, stoken, next_tick, [] { return false; });
       }
       NV_INFO("task stopped.");
     });
@@ -111,20 +111,11 @@ void NeTask::Start()
   }
 }
 
-void NeTask::WakeUp()
-{
-  if (task_thread_.joinable() && cv_pair_sPtr_)
-  {
-    cv_pair_sPtr_->first.notify_all();
-  }
-}
-
 void NeTask::Stop()
 {
   if (task_thread_.joinable())
   {
     task_thread_.request_stop();
-    WakeUp();
     task_thread_.join();
   }
 }

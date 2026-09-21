@@ -64,6 +64,17 @@ enum class RecType_e
   FILE
 };
 
+// 几何体结构体区
+struct NeRerunBox
+{
+  Eigen::Quaterniond rotation = Eigen::Quaterniond::Identity();
+  Eigen::Vector3d    position = Eigen::Vector3d::Zero(); // box 中心
+  double             length = 1.0;                       // 长（x）
+  double             width = 1.0;                        // 宽（y）
+  double             height = 1.0;                       // 高（z）
+  rerun::Color       color = NV_RERUN_COLOR_GREEN;       // RGBA，建议使用宏定义
+};
+
 class NeRerunToolkit final
 {
 public:
@@ -116,6 +127,15 @@ public:
                   const std::vector<std::vector<Eigen::Vector2d>>& groups,
                   rerun::Color color = rerun::Color(0, 255, 0),
                   float        line_width = 3.0f,
+                  std::chrono::steady_clock::time_point stamp =
+                      std::chrono::steady_clock::now());
+
+  // 画3D盒子
+  // * path 不用说
+  // * boxes 采用结构体vector，去填结构体
+  // * stamp 不用说
+  void LogBoxes3D(const std::string&                    path,
+                  const std::vector<NeRerunBox>&        boxes,
                   std::chrono::steady_clock::time_point stamp =
                       std::chrono::steady_clock::now());
 

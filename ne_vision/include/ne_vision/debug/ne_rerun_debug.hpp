@@ -34,6 +34,7 @@
 
 #pragma once
 
+#include <opencv2/ml.hpp>
 #include <string>
 
 namespace ne_vision
@@ -51,6 +52,20 @@ public:
 
 private:
   std::string name_;
+  bool        run_once_flag_ = false;
+
+  struct
+  {
+    double small_w = 0;
+    double small_h = 0;
+    double large_w = 0;
+    double large_h = 0;
+    double outpost_w = 0;
+    double outpost_h = 0;
+
+    double thickness = 0.02;
+
+  } armor_info_;
 };
 
 } // namespace ne_vision

@@ -1,7 +1,5 @@
 #include "ne_vision/tracker/ne_tracker_3d.hpp"
-#include "ne_vision/ballistic_compensation/ballistic_slove.hpp"
 #include "ne_vision/models/ne_sion_model.hpp"
-#include "ne_vision/utils/ne_code_profiler.hpp"
 #include "ne_vision/utils/ne_debug.hpp"
 #include "ne_vision/utils/ne_log.hpp"
 #include "ne_vision/ne_channals.hpp"

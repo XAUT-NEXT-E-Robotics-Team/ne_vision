@@ -92,7 +92,7 @@ private:
       Eigen::Matrix4d cov;
     } imu_to_armor;
 
-    NeArmors3D_t::Armor3D_t::Debug_t debug_info;
+    // NeArmors3D_t::Armor3D_t::Debug_t debug_info;
   };
 
   struct TrackerAim_t
@@ -127,7 +127,7 @@ private:
   bool armors2dImuSync();
   void transformToImuFrame();
   void lmOptimize();
-  void reprojectAndFillDebugInfo();
+  // void reprojectAndFillDebugInfo();
 
   std::string name_;
 
@@ -138,6 +138,8 @@ private:
   NeArmors2D_t armors_2d_;
   NeArmors3D_t armors_3d_;
   NeImuData_t  imu_data_;
+
+  NeTranslation imu_to_camera_;
 
   TrackerAim_t current_aim_;
 

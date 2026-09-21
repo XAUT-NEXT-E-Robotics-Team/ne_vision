@@ -30,7 +30,8 @@
 ///////////////////////////////////////////////////////////
 
 // Description:
-// 一些编码小工具
+// 一些小工具
+// 啥都有，很杂
 
 #pragma once
 
@@ -55,5 +56,27 @@ inline void NeTraverseTuple(Tuple&& tuple, Func&& f)
 }
 
 } // namespace detail
+
+// 帮你从robot_id中判断类型
+inline std::string GetArmorTypeFromId(std::string robot_id)
+{
+  if (robot_id == "outpost")
+    return "outpost";
+  else if (robot_id == "base" || robot_id == "1")
+    return "large";
+  else
+    return "small";
+}
+
+// 帮你从robot_id中得到pitch角度
+inline double GetPitchFromId(std::string robot_id)
+{
+  if (robot_id == "outpost")
+    return 0.0;
+  else if (robot_id == "base" || robot_id == "1")
+    return 0.0;
+  else
+    return 0.0;
+}
 
 } // namespace ne_vision
