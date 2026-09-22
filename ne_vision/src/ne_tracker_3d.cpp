@@ -151,7 +151,7 @@ DO_NORMAL_TRACKING:
 SEND:
   aim_state_o.armor_id = current_tracking_aim_;
   aim_state_o.cap_stamp = armors_3d_i_.cap_stamp;
-  aim_state_c_sPtr_->Transmit(aim_state_o);
+  aim_state_c_sPtr_->Transmit(aim_state_o, aim_state_o.cap_stamp);
 }
 
 } // namespace ne_vision

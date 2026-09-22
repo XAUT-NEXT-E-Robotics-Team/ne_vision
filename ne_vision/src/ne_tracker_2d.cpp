@@ -732,6 +732,8 @@ void NeTracker2D::lmOptimize()
       }
     }
 
+    each.imu_to_armor.cov = Cov_4x4;
+
     // TODO: 保护内容
   }
 }

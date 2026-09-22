@@ -53,7 +53,8 @@ struct NeAimState_t
 {
   std::chrono::steady_clock::time_point cap_stamp; // 拍摄时间 用于对齐
 
-  bool has_target = false; // 是否有目标
+  // 是否有目标，用来判断
+  bool has_target = false;
 
   std::string armor_id = "NULL";
 
@@ -63,6 +64,9 @@ struct NeAimState_t
 
   struct
   {
+    // 当已知装甲板时，中心和半径可以计算出来
+    // 当装甲板为四个时，为普通车
+    // 当装甲板为三个时，为前哨站
     std::vector<Eigen::Vector4d> all_armors;  // x y z yaw
     double                       model_dis;   // 目标距离
     double                       model_yaw;   // 模型yaw

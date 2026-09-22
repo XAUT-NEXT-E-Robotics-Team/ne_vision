@@ -37,6 +37,7 @@
 #include "ne_vision/debug/ne_rerun_debug.hpp"
 #include "ne_vision/debug/ne_debug_def.hpp"
 #include "ne_vision/debug/ne_rerun_toolkit.hpp"
+#include "ne_vision/interfaces/ne_aim_state.hpp"
 #include "ne_vision/interfaces/ne_armors_3d.hpp"
 #include "ne_vision/interfaces/ne_frame_input.hpp"
 #include "ne_vision/ne_channals.hpp"
@@ -140,25 +141,28 @@ void NeRerunDebug::DebugTask()
 
     if (!armors_3d.armors.empty())
     {
+
+      // 根据ID获取装甲板类型，设置尺寸
+      auto type = GetArmorTypeFromId(armors_3d.aim_id);
+
+      double w = armor_info_.small_w;
+      double h = armor_info_.small_h;
+
+      if (type == "large")
+      {
+        w = armor_info_.large_w;
+        h = armor_info_.large_h;
+      }
+      else if (type == "outpost")
+      {
+        w = armor_info_.outpost_w;
+        h = armor_info_.outpost_h;
+      }
+
       std::vector<NeRerunBox> boxes;
       NeRerunBox              box;
       for (const auto& armor : armors_3d.armors)
       {
-        auto type = GetArmorTypeFromId(armors_3d.aim_id);
-
-        double w = armor_info_.small_w;
-        double h = armor_info_.small_h;
-
-        if (type == "large")
-        {
-          w = armor_info_.large_w;
-          h = armor_info_.large_h;
-        }
-        else if (type == "outpost")
-        {
-          w = armor_info_.outpost_w;
-          h = armor_info_.outpost_h;
-        }
 
         box.position = armor.t;
         box.rotation = armor.q;
@@ -166,12 +170,6 @@ void NeRerunDebug::DebugTask()
         box.length = armor_info_.thickness;
         box.width = w;
         box.height = h;
-
-        double pitch = GetPitchFromId(armors_3d.aim_id);
-
-        // box.rotation =
-        //     Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitX()) *
-        //     box.rotation;
 
         box.color = NV_RERUN_COLOR_GREEN;
 
@@ -184,7 +182,116 @@ void NeRerunDebug::DebugTask()
   }
 
   // 画3D tracker结果（3D，IMU系）
-  interfaces::NeArmors3D_t armors_3d_tracked;
+  // 这里不用维护TF，由上面那个维护
+  interfaces::NeAimState_t aim_state;
+  if (NV_CHANNELS.aim_state_sPtr()->Receive(aim_state))
+  {
+    if (aim_state.has_target && aim_state.debug.all_armors.size() >= 3)
+    {
+      // 绘制内容
+
+      // 1. 绘制3D信息
+
+      // 根据装甲板类型设置尺寸
+      double w = armor_info_.small_w;
+      double h = armor_info_.small_h;
+
+      if (aim_state.armor_id == "large" || aim_state.armor_id == "1")
+      {
+        w = armor_info_.large_w;
+        h = armor_info_.large_h;
+      }
+      else if (aim_state.armor_id == "outpost")
+      {
+        w = armor_info_.outpost_w;
+        h = armor_info_.outpost_h;
+      }
+
+      // 根据装甲板ID获取PITCH角度
+      double pitch = GetPitchFromId(aim_state.armor_id);
+
+      // 使用所有装甲板数据计算伪中心
+      Eigen::Vector3d center(0, 0, 0);
+      for (const auto& armor : aim_state.debug.all_armors)
+      {
+        center += Eigen::Vector3d(armor[0], armor[1], armor[2]);
+      }
+      center /= static_cast<double>(aim_state.debug.all_armors.size());
+
+      NeRerunBox              box;
+      std::vector<NeRerunBox> boxes;
+
+      // 绘制四个装甲板
+      for (const auto& armor : aim_state.debug.all_armors)
+      {
+        box.position = Eigen::Vector3d(armor[0], armor[1], armor[2]);
+        box.rotation = Eigen::AngleAxisd(armor[3], Eigen::Vector3d::UnitZ());
+
+        box.rotation =
+            Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) * box.rotation;
+
+        box.length = armor_info_.thickness * 2;
+        box.width = w;
+        box.height = h;
+
+        box.color = NV_RERUN_COLOR_PURPLE;
+
+        boxes.push_back(box);
+      }
+
+      // 绘制中心
+      box.position = center;
+      box.rotation = Eigen::Quaterniond::Identity();
+      box.length = armor_info_.thickness * 2;
+      box.width = armor_info_.thickness * 2;
+      box.height = armor_info_.thickness * 2;
+      box.color = NV_RERUN_COLOR_RED;
+      boxes.push_back(box);
+
+      NV_RERUN_REC.LogBoxes3D(
+          name_ + NVD_TRACKER_ARMOR3D_P, boxes, aim_state.cap_stamp);
+
+      // 2. 绘制模型信息
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_DIS_P,
+                          aim_state.debug.model_dis,
+                          aim_state.cap_stamp);
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_YAW_P,
+                          aim_state.debug.model_yaw,
+                          aim_state.cap_stamp);
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_OMEGA_P,
+                          aim_state.debug.model_omega,
+                          aim_state.cap_stamp);
+      // 计算z1～z3
+      double z1, z2, z3 = 0;
+      if (aim_state.armor_id == "outpost")
+      {
+        z1 = aim_state.debug.all_armors[0][2];
+        z2 = aim_state.debug.all_armors[1][2];
+        z3 = aim_state.debug.all_armors[2][2];
+      }
+      else
+      {
+        z1 = aim_state.debug.all_armors[0][2];
+        z2 = aim_state.debug.all_armors[1][2];
+        z3 = 0.0;
+      }
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_Z1_P, z1, aim_state.cap_stamp);
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_Z2_P, z2, aim_state.cap_stamp);
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_Z3_P, z3, aim_state.cap_stamp);
+
+      // 计算半径
+      Eigen::Vector2d center_2d;
+      center_2d << center.x(), center.y();
+      double r1 = (center_2d - aim_state.debug.all_armors[0].head<2>()).norm();
+      double r2 = (center_2d - aim_state.debug.all_armors[1].head<2>()).norm();
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_R1_P, r1, aim_state.cap_stamp);
+      NV_RERUN_REC.LogF64(name_ + NVD_TRACKER3D_R2_P, r2, aim_state.cap_stamp);
+    }
+    else
+    {
+      // 清除内容
+    }
+  }
 }
 
 } // namespace ne_vision
